@@ -1,0 +1,2175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRMリンク拾いツール</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+  :root { --bd:#d0d4da; --bg:#f6f7f9; --ac:#2563eb; --tx:#1f2937; --mut:#6b7280; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font-family: "Meiryo UI","Yu Gothic UI",sans-serif; font-size:13px; color:var(--tx); background:#fff; }
+  #app { display:flex; height:100%; }
+  #side { width:440px; min-width:300px; display:flex; flex-direction:column; border-right:1px solid var(--bd); background:var(--bg); }
+  #map { flex:1; }
+  header { padding:10px 12px; border-bottom:1px solid var(--bd); background:#fff; }
+  header h1 { font-size:15px; margin:0 0 8px; }
+  .tools { display:flex; flex-wrap:wrap; gap:6px; }
+  button { font:inherit; padding:4px 10px; border:1px solid var(--bd); background:#fff; border-radius:4px; cursor:pointer; }
+  button:hover { border-color:var(--ac); color:var(--ac); }
+  button.primary { background:var(--ac); color:#fff; border-color:var(--ac); }
+  button.primary:hover { filter:brightness(1.1); color:#fff; }
+  button.small { padding:1px 6px; font-size:12px; }
+  #routes { overflow:auto; padding:8px; flex:0 0 auto; max-height:45%; }
+  .route { background:#fff; border:1px solid var(--bd); border-radius:6px; padding:6px 8px; margin-bottom:6px; cursor:pointer; }
+  .route.active { border-color:var(--ac); box-shadow:0 0 0 2px rgba(37,99,235,.2); }
+  .route .row { display:flex; align-items:center; gap:6px; }
+  .route input.name { flex:1; font:inherit; padding:3px 5px; border:1px solid var(--bd); border-radius:3px; min-width:0; }
+  .route input.color { width:26px; height:24px; padding:0; border:none; background:none; }
+  .route .stat { color:var(--mut); font-size:12px; margin-top:4px; }
+  .route .stat.err { color:#c00; }
+  #detail { flex:1; overflow:auto; border-top:1px solid var(--bd); padding:8px; background:#fff; }
+  #detail h2 { font-size:13px; margin:0 0 6px; }
+  .wps { margin:0 0 8px; padding:0; list-style:none; }
+  .wps li { padding:2px 0; display:flex; gap:6px; align-items:center; }
+  .wps .tag { display:inline-block; width:22px; text-align:center; border-radius:3px; color:#fff; font-size:11px; font-weight:bold; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  th, td { border-bottom:1px solid #eee; padding:2px 4px; text-align:left; white-space:nowrap; }
+  th { position:sticky; top:-8px; background:#fff; }
+  tr.lk:hover { background:#fff3c4; cursor:pointer; }
+  .help { color:var(--mut); font-size:12px; line-height:1.6; }
+  .help b { color:var(--tx); }
+  #status { position:absolute; right:10px; bottom:22px; z-index:1000; background:rgba(255,255,255,.92); padding:4px 8px; border-radius:4px; border:1px solid var(--bd); font-size:12px; }
+  #toast { position:absolute; left:50%; top:12px; transform:translateX(-50%); z-index:1000; background:#1f2937; color:#fff; padding:6px 12px; border-radius:4px; font-size:12px; display:none; }
+  .legend { background:rgba(255,255,255,.92); padding:6px 8px; border-radius:4px; border:1px solid var(--bd); font-size:11px; line-height:1.5; }
+  .legend i { display:inline-block; width:18px; height:3px; vertical-align:middle; margin-right:4px; }
+  .wp-icon { border-radius:50%; color:#fff; font-weight:bold; text-align:center; border:2px solid #fff; box-shadow:0 0 3px rgba(0,0,0,.6); }
+  #map.via-drag .leaflet-tooltip:not(.via-tip) { display:none; }
+  .revnotes { margin:6px 0 8px; padding:6px 8px; border:1px solid var(--bd); border-radius:6px; font-size:12px; line-height:1.6; }
+  .revnotes .rn[data-n] { cursor:pointer; } .revnotes .rn[data-n]:hover { text-decoration:underline; }
+  .revnotes .ok { color:#15803d; } .revnotes .warn { color:#b45309; } .revnotes .info { color:var(--mut); }
+  .via-tip { font-weight:bold; border-color:#f59e0b; }
+  /* 下絵の切替ボタン(Leafletの画像は同梱していないので文字で出す) */
+  .leaflet-control-layers-toggle { background-image:none !important; width:auto !important; height:auto !important; padding:4px 8px; font-size:12px; font-weight:bold; color:#333; text-decoration:none; }
+  .leaflet-control-layers-toggle::after { content:'下絵'; }
+  .leaflet-control-layers label { font-size:12px; }
+  .leaflet-tooltip.hi-tip { padding:0 4px; font-size:11px; font-weight:bold; color:#0e7490; border-color:#0e7490; }
+  .distbox { background:#fff; padding:6px 22px 6px 10px; border-radius:6px; box-shadow:0 1px 5px rgba(0,0,0,.4); font-size:12px; line-height:1.7; max-width:360px; position:relative; }
+  .distbox .x { position:absolute; right:6px; top:2px; cursor:pointer; color:#666; font-size:16px; text-decoration:none; }
+  .wp-icon.wp-link { width:17px; height:17px; border-radius:3px; transform:rotate(45deg); }   /* 経由リンク＝ひし形 */
+  .wp-icon.wp-link span { display:block; transform:rotate(-45deg); font-size:11px; line-height:17px; }
+  /* 経路レイヤ(SVG)の余白部分でクリックを奪わない → 下のリンク・ノードがクリックできる */
+  .leaflet-routePane-pane svg { pointer-events:none; }
+  .leaflet-cand-pane, .leaflet-cand-pane * { pointer-events:none !important; }   /* 候補表示は下の経路線のクリックを邪魔しない */
+  #map.picking, #map.picking .leaflet-grab { cursor:crosshair; }
+  .route button.on { background:#fde68a; border-color:#d97706; color:#92400e; font-weight:bold; }
+  .route .stat.pick { color:#b45309; font-weight:bold; }
+  .opt { display:block; margin-top:8px; font-size:12px; }
+  .wpmenu { min-width:170px; }
+  .wpmenu .ttl { font-weight:bold; margin-bottom:2px; }
+  .wpmenu .sub { color:var(--mut); font-size:12px; margin-bottom:6px; }
+  .wpmenu button { display:block; width:100%; margin-top:4px; text-align:left; }
+  .wpmenu button.danger { color:#b91c1c; border-color:#fca5a5; }
+  .wpmenu button.danger:hover { background:#fef2f2; }
+  .types { display:flex; flex-wrap:wrap; gap:2px 10px; margin-top:4px; font-size:12px; }
+  .types label { white-space:nowrap; cursor:pointer; }
+  .types input { vertical-align:middle; margin:0 2px 0 0; }
+  .types .lb { color:var(--mut); }
+  .types-sum { color:var(--mut); font-size:12px; margin-top:3px; }
+  .opt select { font:inherit; padding:2px; }
+  tr.wrong td { color:#b91c1c; font-weight:bold; }
+  .warn { color:#b91c1c; font-weight:bold; }
+  #boot { position:fixed; inset:0; z-index:5000; background:rgba(246,247,249,.97); display:flex; align-items:center; justify-content:center; }
+  #boot .box { width:min(460px, 90vw); background:#fff; border:1px solid var(--bd); border-radius:8px; padding:20px 24px; box-shadow:0 4px 16px rgba(0,0,0,.08); }
+  #boot h2 { font-size:15px; margin:0 0 12px; }
+  #boot .bar { height:10px; background:#e5e7eb; border-radius:5px; overflow:hidden; }
+  #boot .bar i { display:block; height:100%; width:0; background:var(--ac); transition:width .3s; }
+  #boot .stage { margin-top:10px; font-size:12px; color:var(--tx); min-height:1.4em; }
+  #boot .sub { margin-top:4px; font-size:11px; color:var(--mut); }
+  #boot.err .bar i { background:#dc2626; }
+  .route button.rev { min-width:84px; }
+  .route select.ver { font:inherit; font-size:12px; padding:1px 2px; }
+  #boot h2 { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* トラカン: 正方形を対角で2分割(左上=上り / 右下=下り)し、誤差率の色で塗る */
+  .tk-icon { width:16px; height:16px; border:1.5px solid #1f2937; border-radius:2px; box-shadow:0 0 2px rgba(0,0,0,.5); }
+  .tk-icon.nocen { border-style:dashed; border-color:#6b7280; }
+  .tk-info { color:var(--mut); font-size:11px; }
+  .tk-legend .bar { height:10px; width:180px; background:linear-gradient(90deg, rgb(33,102,172), rgb(247,247,247), rgb(178,24,43)); border:1px solid #999; }
+  .tk-legend .ticks { display:flex; justify-content:space-between; width:180px; font-size:10px; }
+  .tk-pop h3 { font-size:13px; margin:0 0 4px; }
+  .tkdl-popbtn { display:block; width:100%; margin-bottom:6px; font-size:12px; padding:4px 6px; }
+  .tkdl-popbtn.on { background:#dbeafe; border-color:#2563eb; color:#1d4ed8; font-weight:bold; }
+  .tk-pop .meta { font-size:11px; color:var(--mut); line-height:1.5; margin-bottom:4px; }
+  .tk-pop .dir { font-size:12px; font-weight:bold; margin-top:6px; }
+  .tk-pop .err { font-weight:bold; }
+  .tk-pop .src { font-size:10px; color:var(--mut); margin-top:4px; }
+  #tkDownloadPanel { position:absolute; top:10px; right:10px; z-index:1600; width:360px; max-width:calc(100% - 20px); }
+  .tkdl-list { max-height:220px; overflow-y:auto; border:1px solid var(--bd); border-radius:6px; margin:4px 0 8px; font-size:12px; }
+  .tkdl-list:empty::before { content:'（未選択）'; display:block; padding:6px 8px; color:var(--mut); }
+  .tkdl-item { display:flex; align-items:center; gap:6px; padding:4px 6px; border-bottom:1px solid #eee; cursor:pointer; }
+  .tkdl-item:last-child { border-bottom:none; }
+  .tkdl-item:hover { background:#f1f5f9; }
+  .tkdl-item.out { background:#fff7ed; }
+  .tkdl-src { flex:none; font-size:10px; padding:1px 4px; border-radius:3px; color:#fff; }
+  .tkdl-src.mlit { background:#0e7490; } .tkdl-src.jartic { background:#7c3aed; }
+  .tkdl-main { flex:1; min-width:0; }
+  .tkdl-name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tkdl-av { font-size:11px; color:var(--mut); }
+  .tkdl-item.out .tkdl-av { color:#c2410c; }
+  .tkdl-x { flex:none; border:none; background:none; color:var(--mut); font-size:14px; cursor:pointer; padding:0 4px; }
+  .tkdl-x:hover { color:#dc2626; }
+  .tkdl-common { font-size:12px; margin:2px 0 4px; line-height:1.5; }
+  .tkdl-common button { margin-left:4px; }
+  .tkdl-date { width:96px; cursor:pointer; text-align:center; }
+  .tkdl-date.on { border-color:#2563eb; box-shadow:0 0 0 2px #bfdbfe; }
+  .tkdl-cal { border:1px solid var(--bd); border-radius:8px; padding:6px 8px 8px; margin:4px 0 6px; background:#fff; }
+  .tkcal-head { display:flex; align-items:center; gap:4px; margin-bottom:4px; font-size:13px; }
+  .tkcal-head b { flex:1; text-align:center; }
+  .tkcal-head button { border:none; background:none; cursor:pointer; font-size:15px; padding:0 6px; color:#334155; }
+  .tkcal-who { font-size:11px; color:var(--mut); margin-bottom:4px; }
+  .tkcal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+  .tkcal-w { font-size:11px; text-align:center; color:var(--mut); }
+  .tkcal-w.sun { color:#dc2626; } .tkcal-w.sat { color:#2563eb; }
+  .tkcal-d { border:none; border-radius:4px; padding:4px 0; font:inherit; font-size:12px; text-align:center; cursor:pointer; }
+  .tkcal-d.all { background:#dbeafe; color:#1e3a8a; font-weight:bold; }
+  .tkcal-d.some { background:#ffedd5; color:#9a3412; }
+  .tkcal-d.unknown { background:#f1f5f9; color:#475569; }
+  .tkcal-d.none { background:transparent; color:#cbd5e1; cursor:default; }
+  .tkcal-d.inr { box-shadow:inset 0 0 0 2px #60a5fa; }
+  .tkcal-d.sel { background:#2563eb; color:#fff; }
+  button.tkcal-d:not(:disabled):hover { outline:2px solid #2563eb; }
+  .tkcal-legend { font-size:11px; color:var(--mut); margin-top:6px; display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; }
+  .tkcal-legend .tkcal-d { display:inline-block; width:18px; padding:1px 0; margin-right:3px; cursor:default; }
+  #tkDownloadPanel .box { max-height:calc(100vh - 110px); overflow-y:auto; background:#fff; border:1px solid var(--bd); border-radius:8px; padding:12px 14px; box-shadow:0 4px 16px rgba(0,0,0,.12); }
+  #tkDownloadPanel h2 { font-size:14px; margin:0 0 6px; }
+  .tkdl-help, .tkdl-range { font-size:11px; color:var(--mut); line-height:1.5; }
+  .tkdl-count { font-size:12px; margin:6px 0; }
+  .tkdl-period { font-size:12px; margin:4px 0; }
+  .tkdl-period input { font:inherit; }
+  .tkdl-btns { display:flex; gap:6px; margin-top:8px; }
+  #mapwrap { flex:1; position:relative; }
+  #mapwrap #map { position:absolute; inset:0; }
+  /* ID検索 */
+  .find { display:flex; gap:4px; align-items:flex-start; margin-top:8px; }
+  .find textarea { flex:1; font:inherit; font-size:12px; padding:3px 5px; border:1px solid var(--bd); border-radius:4px; resize:vertical; min-height:26px; height:26px; line-height:1.5; }
+  #findPanel { position:absolute; top:10px; left:54px; z-index:1500; width:400px; max-width:calc(100% - 70px); }
+  #findPanel .box { max-height:calc(100vh - 120px); overflow-y:auto; background:#fff; border:1px solid var(--bd); border-radius:8px; padding:10px 12px; box-shadow:0 4px 16px rgba(0,0,0,.12); font-size:12px; }
+  #findPanel h2 { font-size:13px; margin:0 0 6px; display:flex; align-items:center; gap:6px; }
+  #findPanel h2 span { flex:1; }
+  .fd-item { border-top:1px solid #eee; padding:5px 0; }
+  .fd-q { font-weight:bold; cursor:pointer; } .fd-q:hover { text-decoration:underline; }
+  .fd-q .k { font-weight:normal; font-size:10px; color:#fff; background:#db2777; border-radius:3px; padding:0 4px; margin-right:4px; }
+  .fd-item.ng .fd-q { color:#b91c1c; cursor:default; text-decoration:none; }
+  .fd-msg { color:var(--mut); font-size:11px; }
+  .fd-item.ng .fd-msg { color:#b91c1c; }
+  .fd-link { padding:1px 0 1px 10px; cursor:pointer; line-height:1.5; }
+  .fd-link:hover { background:#fdf2f8; }
+  .fd-link .sub { color:var(--mut); font-size:11px; }
+  /* 初回アンケート・利用状況 */
+  .modal { position:fixed; inset:0; z-index:6000; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; }
+  .modal .box { background:#fff; border-radius:10px; padding:20px 24px; box-shadow:0 8px 32px rgba(0,0,0,.25); max-height:92vh; overflow:auto; }
+  #survey .box { width:min(520px, 94vw); }
+  #survey h2 { font-size:16px; margin:0 0 6px; }
+  #survey .lead { font-size:12px; color:var(--mut); line-height:1.6; margin-bottom:12px; }
+  #survey .q { font-weight:bold; margin:10px 0 6px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chips label { border:1px solid var(--bd); border-radius:16px; padding:4px 12px; cursor:pointer; user-select:none; }
+  .chips input { display:none; }
+  .chips label:has(input:checked) { background:var(--ac); border-color:var(--ac); color:#fff; }
+  #survey .foot { margin-top:16px; display:flex; align-items:center; gap:10px; }
+  #survey .foot span { font-size:12px; color:#b91c1c; }
+  #usagePanel .box { width:min(1100px, 96vw); }
+  #usagePanel h2 { font-size:16px; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  #usagePanel h2 span { flex:1; }
+  .us-bar { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; font-size:12px; margin-bottom:8px; }
+  .us-bar input { font:inherit; }
+  .us-note { font-size:11px; color:var(--mut); line-height:1.6; margin:4px 0 10px; }
+  #usagePanel h3 { font-size:13px; margin:14px 0 4px; }
+  .us-tbl th, .us-tbl td { text-align:right; padding:3px 8px; border-bottom:1px solid #e5e7eb; }
+  .us-tbl th { background:#f1f5f9; position:static; text-align:center; }
+  .us-tbl td.l { text-align:left; }
+  .us-tbl tr.sub td { background:#f8fafc; font-weight:bold; }
+  .us-tbl tr.tot td { background:#e0e7ff; font-weight:bold; }
+  .us-tbl td.z { color:#cbd5e1; }
+  .us-tbl td .bar { display:inline-block; height:8px; background:#93c5fd; vertical-align:middle; margin-right:4px; border-radius:2px; }
+
+  /* 参照GeoJSONレイヤ */
+  #refPanel { margin-top:8px; border:1px solid var(--bd); border-radius:6px; background:#fff; padding:6px; }
+  #refPanel .ref-head { display:flex; align-items:center; gap:6px; font-weight:bold; }
+  #refPanel .ref-head span { flex:1; }
+  #refLayers:empty::before { content:'（参照レイヤなし）'; display:block; color:var(--mut); font-size:12px; padding:4px 2px 1px; }
+  .ref-item { border-top:1px solid #eee; padding:6px 2px 2px; margin-top:4px; }
+  .ref-title { font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ref-controls { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin-top:4px; font-size:12px; }
+  .ref-controls label { white-space:nowrap; }
+  .ref-controls select { font:inherit; max-width:180px; padding:1px 3px; }
+  .ref-label { background:rgba(255,255,255,.92); border:1px solid #b91c1c; color:#7f1d1d; box-shadow:0 1px 2px rgba(0,0,0,.25); font-weight:bold; padding:1px 4px; }
+  .ref-label::before { display:none; }
+</style>
+</head>
+<body>
+<div id="boot"><div class="box"><h2 id="bootTitle">DRMリンク拾いツール 起動中</h2><div class="bar"><i id="bootBar"></i></div><div class="stage" id="bootStage">サーバに接続中...</div><div class="sub" id="bootSub">経過 0 秒</div></div></div>
+<div id="app">
+  <div id="side">
+    <header>
+      <h1>DRMリンク拾いツール</h1>
+      <div class="tools">
+        <button class="primary" id="btnAdd">＋ 経路追加</button>
+        <button class="primary" id="btnXlsx">Excel出力</button>
+        <button id="btnSave">設定保存</button>
+        <button id="btnLoad">設定読込</button>
+        <input type="file" id="fileLoad" accept=".json" style="display:none">
+        <button id="btnGeoJson">＋ GeoJSON追加</button>
+        <input type="file" id="fileGeoJson" accept=".geojson,.json,application/geo+json,application/json" multiple style="display:none">
+        <button id="btnUsage" title="どの支社・役職の人が、どの機能をどれくらい使っているか">利用状況</button>
+      </div>
+      <div class="find">
+        <textarea id="findQ" rows="1" placeholder="ID検索：リンクMatchCode／ノード番号／センサス区間番号（Excelから複数貼付可）" title="例）リンク 533946-061230B622 ／ ノード 533946-6123 ／ センサス区間 23110100010（11桁）&#10;Enterで検索（Shift+Enterで改行）。表示中のDRM版で探します"></textarea>
+        <button id="btnFind">検索</button>
+      </div>
+      <label class="opt">経路の選び方：
+        <select id="mode">
+          <option value="time">所要時間が最短（DRMの規制速度）</option>
+          <option value="dist">距離が最短</option>
+        </select>
+      </label>
+      <label class="opt">一方通行：
+        <select id="oneway">
+          <option value="all">逆走させない（条件付規制も含む）</option>
+          <option value="strict">逆走させない（条件無の規制のみ）</option>
+          <option value="off">考慮しない</option>
+        </select>
+      </label>
+      <label class="opt"><input type="checkbox" id="tkShow"> トラカン（国交省）を表示 <span id="tkInfo" class="tk-info"></span></label>
+      <label class="opt"><input type="checkbox" id="jkShow"> トラカン（JARTIC・県警）を表示 <span id="jkInfo" class="tk-info"></span></label>
+      <div class="opt"><button id="btnTkDownload">トラカンデータをダウンロード…</button></div>
+      <div id="refPanel">
+        <div class="ref-head"><span>参照GeoJSONレイヤ</span><button class="small" id="btnGeoJson2">追加</button></div>
+        <div id="refLayers"></div>
+      </div>
+    </header>
+    <div id="routes"></div>
+    <div id="detail"></div>
+  </div>
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="status">読込中...</div>
+    <div id="toast"></div>
+    <div id="findPanel" style="display:none"><div class="box">
+      <h2><span id="findTitle">ID検索の結果</span><button class="small" id="findClose">閉じる</button></h2>
+      <div id="findBody"></div>
+    </div></div>
+    <div id="tkDownloadPanel" style="display:none"><div class="box">
+      <h2>トラカンデータのダウンロード</h2>
+      <div class="tkdl-help">地図上のトラカン（<b>四角＝国交省</b>／<b>矢印＝JARTIC</b>）をクリックして選択してください（複数可・もう一度クリックで解除）</div>
+      <div class="tkdl-count">選択中：国交省 <b id="tkdlMlitCount">0</b> 地点 ／ JARTIC <b id="tkdlJkCount">0</b> 地点</div>
+      <div class="tkdl-list" id="tkdlList"></div>
+      <div class="tkdl-period">期間：<input type="text" id="tkdlFrom" class="tkdl-date" readonly placeholder="開始日"> ～ <input type="text" id="tkdlTo" class="tkdl-date" readonly placeholder="終了日"></div>
+      <div class="tkdl-cal" id="tkdlCal" style="display:none"></div>
+      <div class="tkdl-common" id="tkdlCommon"></div>
+      <div class="tkdl-range" id="tkdlRangeInfo">データの範囲を確認中...</div>
+      <div class="tkdl-btns">
+        <button id="tkdlClear" class="small">選択解除</button>
+        <button id="tkdlGo" class="primary small">ダウンロード</button>
+        <button id="tkdlClose" class="small">閉じる</button>
+      </div>
+    </div></div>
+  </div>
+</div>
+<div id="survey" class="modal" style="display:none"><div class="box">
+  <h2>はじめに（初回のみ・1回だけ）</h2>
+  <div class="lead">ツールの利用状況を把握するため、所属の支社と役職を教えてください。<br>回答は最初の起動時の1回だけで、以降は聞かれません（Windowsのログオン名と結び付けて記録します）。</div>
+  <div class="q">支社</div><div class="chips" id="svBranch"></div>
+  <div class="q">役職</div><div class="chips" id="svRole"></div>
+  <div class="foot"><button class="primary" id="svOk" disabled>回答してはじめる</button><span id="svErr"></span></div>
+</div></div>
+<div id="usagePanel" class="modal" style="display:none"><div class="box">
+  <h2><span>利用状況</span><button class="small" id="usClose">閉じる</button></h2>
+  <div class="us-bar">期間：<input type="date" id="usFrom"> ～ <input type="date" id="usTo">
+    <button class="small" id="usGo">集計</button><button class="small" id="usAll">全期間</button>
+    <button class="small" id="usRaw" title="記録したすべての操作を1行ずつ出力（後から自由に分析する用）">全ログをExcel出力</button></div>
+  <div id="usBody">集計中…</div>
+</div></div>
+<script src="vendor/leaflet.js"></script>
+<script>
+'use strict';
+const SCALE = 1e6;
+const PALETTE = ['#e6194b','#4363d8','#3cb44b','#f58231','#911eb4','#0aa6c2','#f032e6','#9a6324'];
+// 経路の表示色: 一般道=水色 / 自動車専用道路・高速道路系=緑
+const ROUTE_COLOR = '#22b8f0', ROUTE_HW_COLOR = '#16a34a';
+const CLS = {1:['高速自動車国道','#7c3aed'],2:['都市高速','#7c3aed'],3:['一般国道','#d73027'],4:['主要地方道(県)','#fc8d59'],
+  5:['主要地方道(市)','#fc8d59'],6:['一般県道','#e0b000'],7:['指定市の市道','#64748b'],9:['その他','#64748b']};
+const STORE_KEY = 'drm_link_picker_routes_v1';
+// 経路探索に使う道路種別(チェックボックス)
+const TYPES = [[1,'高速'],[2,'都市高速'],[3,'国道'],[4,'主要地方道(県)'],[5,'主要地方道(市)'],[6,'一般県道'],[7,'指定市道'],[9,'その他']];
+const ALL_TYPES = TYPES.map(t => t[0]);
+const typesParam = r => r && r.types.length < ALL_TYPES.length ? '&types=' + r.types.join(',') : '';
+
+// ---------- 地図 ----------
+const map = L.map('map', {preferCanvas:true}).setView([35.1709, 136.8815], 15);
+// 下絵(右上で切替。選んだものはこのPCで覚える)
+const GSI_ATTR = '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a> | DRM';
+const BASES = {
+  '地理院 淡色': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {maxZoom:19, maxNativeZoom:18, attribution:GSI_ATTR}),
+  '地理院 標準': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {maxZoom:19, maxNativeZoom:18, attribution:GSI_ATTR}),
+  'Googleマップ': L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&hl=ja&x={x}&y={y}&z={z}', {subdomains:'0123', maxZoom:20, attribution:'&copy; Google | DRM'}),
+  'Google 航空写真': L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&hl=ja&x={x}&y={y}&z={z}', {subdomains:'0123', maxZoom:20, attribution:'&copy; Google | DRM'}),
+};
+let baseName = '地理院 淡色';
+try { const b = localStorage.getItem('drmBaseMap'); if (BASES[b]) baseName = b; } catch (e) {}
+BASES[baseName].addTo(map);
+L.control.layers(BASES, null, {position:'topright'}).addTo(map);
+map.on('baselayerchange', e => { try { localStorage.setItem('drmBaseMap', e.name); } catch (x) {} });map.createPane('linkPane').style.zIndex = 410;
+map.createPane('routePane').style.zIndex = 450;
+const linkRenderer = L.canvas({pane:'linkPane', tolerance:4});
+const routeRenderer = L.svg({pane:'routePane'});
+const NODE_ZOOM = 14;  // このズーム以上でノードを表示・選択可能にする
+const linkLayer = L.layerGroup().addTo(map);
+const nodeLayer = L.layerGroup().addTo(map);
+
+const legend = L.control({position:'bottomleft'});
+legend.onAdd = () => {
+  const d = L.DomUtil.create('div', 'legend');
+  d.innerHTML = `<div><i style="background:${ROUTE_COLOR};height:5px"></i><b>経路(一般道)</b></div>` +
+    `<div><i style="background:${ROUTE_HW_COLOR};height:5px"></i><b>経路(自専道・高速)</b></div>` +
+    [1,3,4,6,9].map(c => `<div><i style="background:${CLS[c][1]}"></i>${c===1?'高速':CLS[c][0]}</div>`).join('');
+  return d;
+};
+legend.addTo(map);
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg, ms=2500) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', ms);
+}
+
+// ---------- 参照GeoJSONレイヤ ----------
+// DRM探索用データとは分離し、ブラウザ内だけで読込み・表示する。
+const refLayers = [];
+let refSeq = 1;
+const REF_PANE_BASE_Z = 650;
+function ensureRefPane(rec) {
+  if (!rec.pane) rec.pane = `refPane${rec.id}`;
+  if (!map.getPane(rec.pane)) map.createPane(rec.pane);
+  return rec.pane;
+}
+
+function refDefaultField(fields) {
+  return fields.includes('主要渋滞箇所名') ? '主要渋滞箇所名' :
+         fields.find(x => /名称|名前|name|label|title/i.test(x)) || fields[0] || '';
+}
+function refPopup(props) {
+  const rows = Object.entries(props || {}).map(([k,v]) => `<tr><th>${esc(k)}</th><td>${esc(v ?? '')}</td></tr>`).join('');
+  return rows ? `<table>${rows}</table>` : '属性なし';
+}
+const refCanvasRenderer = L.canvas({padding:0.35});
+function refDivIcon(rec) {
+  const size = Math.max(4, Math.min(24, Number(rec.size) || 8));
+  const color = rec.color || '#ef4444';
+  const symbols = {diamond:'◆', square:'■', triangle:'▲', star:'★', plus:'＋'};
+  const symbol = symbols[rec.shape] || '◆';
+  const px = Math.max(14, size * 2 + 4);
+  return L.divIcon({className:'ref-shape-icon',
+    html:`<span style="color:${color};font-size:${px}px;line-height:${px}px;text-shadow:0 0 1px #fff,0 0 2px #fff">${symbol}</span>`,
+    iconSize:[px,px], iconAnchor:[px/2,px/2]});
+}
+function refPointFor(rec, feature, latlng) {
+  const size = Math.max(4, Math.min(24, Number(rec.size) || 8));
+  const color = rec.color || '#ef4444';
+  const shape = rec.shape || 'diamond';
+  const symbols = {diamond:'◆', square:'■', triangle:'▲', star:'★', plus:'＋'};
+  if (shape === 'circle') {
+    return L.circleMarker(latlng, {pane:ensureRefPane(rec), radius:size, color:'#7f1d1d', weight:2, fillColor:color, fillOpacity:.9});
+  }
+  return L.marker(latlng, {pane:ensureRefPane(rec), icon:refDivIcon(rec)});
+}
+function bindRefFeature(rec, feature, layer) {
+  layer.bindPopup(refPopup(feature.properties));
+  if (rec.labels && rec.field && feature.properties && feature.properties[rec.field] != null) {
+    const text = String(feature.properties[rec.field]).trim();
+    if (text) layer.bindTooltip(text, {permanent:true, direction:'right', offset:[7,0], className:'ref-label'});
+  }
+}
+function updateRefPointStyle(rec) {
+  // GeoJSON全体を作り直さず、既存のポイントだけ差し替える。
+  // ポップアップとラベルは維持するため、大規模データでも操作待ちを減らす。
+  if (!rec.layer) return;
+  const layers = [];
+  rec.layer.eachLayer(l => layers.push(l));
+  const icon = rec.shape === 'circle' ? null : refDivIcon(rec);
+  let i = 0;
+  function chunk() {
+    const end = Math.min(i + 800, layers.length);
+    for (; i < end; i++) {
+      const l = layers[i];
+      if (rec.shape === 'circle') {
+        if (l instanceof L.CircleMarker) {
+          l.setRadius(Math.max(4, Math.min(24, Number(rec.size) || 8)));
+          l.setStyle({color:'#7f1d1d', fillColor:rec.color || '#ef4444'});
+        } else {
+          // 形状変更時のみ、この地物だけ作り直すよりレイヤ再構築の方が安全。
+          rebuildRefLayer(rec); return;
+        }
+      } else if (l instanceof L.Marker && !(l instanceof L.CircleMarker)) {
+        l.setIcon(icon);
+      } else {
+        rebuildRefLayer(rec); return;
+      }
+    }
+    if (i < layers.length) requestAnimationFrame(chunk);
+  }
+  requestAnimationFrame(chunk);
+}
+function scheduleRefStyle(rec) {
+  clearTimeout(rec._styleTimer);
+  rec._styleTimer = setTimeout(() => updateRefPointStyle(rec), 120);
+}
+function refGeometryKind(features) {
+  const types = new Set(features.map(f => f && f.geometry && f.geometry.type).filter(Boolean));
+  if ([...types].some(t => t === 'LineString' || t === 'MultiLineString')) return 'line';
+  if ([...types].some(t => t === 'Polygon' || t === 'MultiPolygon')) return 'polygon';
+  return 'point';
+}
+function refVectorStyle(rec) {
+  return {
+    color: rec.lineColor || '#dc2626',
+    weight: Math.max(1, Math.min(20, Number(rec.lineWidth) || 3)),
+    opacity: Math.max(0.1, Math.min(1, Number(rec.lineOpacity) || .9)),
+    dashArray: rec.lineDash === 'dash' ? '12,8' : rec.lineDash === 'dot' ? '1,7' : null,
+    fillColor: rec.lineColor || '#dc2626', fillOpacity:.20
+  };
+}
+function updateRefVectorStyle(rec) {
+  if (!rec.layer) return;
+  const st = refVectorStyle(rec);
+  rec.layer.eachLayer(l => {
+    if (!l.setStyle) return;
+    l.setStyle(st);
+    // Leaflet SVGではdashArray変更時に属性更新が取りこぼされる環境があるため明示更新する。
+    if (l._path) {
+      const dash = st.dashArray;
+      if (dash) l._path.setAttribute('stroke-dasharray', dash);
+      else l._path.removeAttribute('stroke-dasharray');
+      l._path.setAttribute('stroke-linecap', rec.lineDash === 'dot' ? 'round' : 'butt');
+    }
+  });
+}
+function rebuildRefLayer(rec) {
+  if (rec.layer && map.hasLayer(rec.layer)) map.removeLayer(rec.layer);
+  rec.layer = L.geoJSON(rec.data, {
+    pane: ensureRefPane(rec),
+    pointToLayer: (f,ll) => refPointFor(rec,f,ll),
+    style: () => refVectorStyle(rec),
+    onEachFeature: (f,l) => bindRefFeature(rec,f,l)
+  });
+  if (rec.visible) rec.layer.addTo(map);
+}
+function applyRefLayerOrder() {
+  // LeafletのMarker/DivIconはbringToFrontを持たないため、レイヤ別paneのz-indexで順序を管理する。
+  // 一覧の先頭ほどz-indexを高くして前面に出す。
+  refLayers.forEach((rec, i) => {
+    const pane = map.getPane(ensureRefPane(rec));
+    if (pane) pane.style.zIndex = String(REF_PANE_BASE_Z + (refLayers.length - i) * 10);
+  });
+}
+function moveRefLayer(rec, delta) {
+  const i = refLayers.indexOf(rec);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= refLayers.length) return;
+  [refLayers[i], refLayers[j]] = [refLayers[j], refLayers[i]];
+  renderRefLayers();
+  applyRefLayerOrder();
+}
+function renderRefLayers() {
+  const box = $('refLayers');
+  box.innerHTML = '';
+  refLayers.forEach(rec => {
+    const d = document.createElement('div');
+    d.className = 'ref-item';
+    d.innerHTML = `<div class="ref-title" title="${esc(rec.name)}">${esc(rec.name)} <span style="color:var(--mut);font-weight:normal">(${rec.count.toLocaleString()}件)</span> <button class="small" data-a="up" title="1つ前面へ">↑</button><button class="small" data-a="down" title="1つ背面へ">↓</button></div>
+      <div class="ref-controls">
+        <label><input type="checkbox" data-a="show"${rec.visible?' checked':''}> 表示</label>
+        <label><input type="checkbox" data-a="labels"${rec.labels?' checked':''}> ラベル</label>
+        <select data-a="field" title="ラベルに使う属性">${rec.fields.map(f=>`<option value="${esc(f)}"${f===rec.field?' selected':''}>${esc(f)}</option>`).join('')}</select>
+        ${rec.kind === 'point' ? `<label>形 <select data-a="shape"><option value="diamond"${rec.shape==='diamond'?' selected':''}>◆</option><option value="circle"${rec.shape==='circle'?' selected':''}>●</option><option value="square"${rec.shape==='square'?' selected':''}>■</option><option value="triangle"${rec.shape==='triangle'?' selected':''}>▲</option><option value="star"${rec.shape==='star'?' selected':''}>★</option><option value="plus"${rec.shape==='plus'?' selected':''}>＋</option></select></label>
+        <label>色 <input data-a="color" type="color" value="${rec.color}" style="width:32px;height:22px;padding:0;border:0"></label>
+        <label>大きさ <input data-a="size" type="number" min="4" max="24" value="${rec.size}" style="width:44px"></label>` : `<label>線色 <input data-a="lineColor" type="color" value="${rec.lineColor}" style="width:32px;height:22px;padding:0;border:0"></label>
+        <label>線幅 <input data-a="lineWidth" type="number" min="1" max="20" value="${rec.lineWidth}" style="width:44px"></label>
+        <label>透明度 <input data-a="lineOpacity" type="number" min="0.1" max="1" step="0.1" value="${rec.lineOpacity}" style="width:52px"></label>
+        <label>線種 <select data-a="lineDash"><option value="solid"${rec.lineDash==='solid'?' selected':''}>実線</option><option value="dash"${rec.lineDash==='dash'?' selected':''}>破線</option><option value="dot"${rec.lineDash==='dot'?' selected':''}>点線</option></select></label>`}
+        <button class="small" data-a="fit">範囲へ</button><button class="small" data-a="del">削除</button>
+      </div>`;
+    d.querySelector('[data-a=up]').disabled = refLayers.indexOf(rec) === 0;
+    d.querySelector('[data-a=down]').disabled = refLayers.indexOf(rec) === refLayers.length - 1;
+    d.querySelector('[data-a=up]').onclick = () => moveRefLayer(rec, -1);
+    d.querySelector('[data-a=down]').onclick = () => moveRefLayer(rec, +1);
+    d.querySelector('[data-a=show]').onchange = e => {
+      rec.visible = e.target.checked;
+      if (rec.visible) { rec.layer.addTo(map); applyRefLayerOrder(); } else map.removeLayer(rec.layer);
+    };
+    d.querySelector('[data-a=labels]').onchange = e => { rec.labels = e.target.checked; rebuildRefLayer(rec); };
+    d.querySelector('[data-a=field]').onchange = e => { rec.field = e.target.value; rebuildRefLayer(rec); };
+    const shapeEl=d.querySelector('[data-a=shape]'), colorEl=d.querySelector('[data-a=color]'), sizeEl=d.querySelector('[data-a=size]');
+    if (shapeEl) shapeEl.onchange = e => { rec.shape = e.target.value; rebuildRefLayer(rec); applyRefLayerOrder(); };
+    if (colorEl) colorEl.onchange = e => { rec.color = e.target.value; scheduleRefStyle(rec); };
+    if (sizeEl) sizeEl.onchange = e => { rec.size = Math.max(4, Math.min(24, Number(e.target.value) || 8)); e.target.value = rec.size; scheduleRefStyle(rec); };
+    const lc=d.querySelector('[data-a=lineColor]'), lw=d.querySelector('[data-a=lineWidth]'), lo=d.querySelector('[data-a=lineOpacity]'), ld=d.querySelector('[data-a=lineDash]');
+    if (lc) lc.onchange=e=>{rec.lineColor=e.target.value; updateRefVectorStyle(rec);};
+    if (lw) lw.onchange=e=>{rec.lineWidth=Math.max(1,Math.min(20,Number(e.target.value)||3)); e.target.value=rec.lineWidth; updateRefVectorStyle(rec);};
+    if (lo) lo.onchange=e=>{rec.lineOpacity=Math.max(.1,Math.min(1,Number(e.target.value)||.9)); e.target.value=rec.lineOpacity; updateRefVectorStyle(rec);};
+    if (ld) ld.onchange=e=>{rec.lineDash=e.target.value; rebuildRefLayer(rec); applyRefLayerOrder();};
+    d.querySelector('[data-a=fit]').onclick = () => {
+      const b = rec.layer.getBounds();
+      if (b && b.isValid()) map.fitBounds(b, {padding:[40,40], maxZoom:17});
+    };
+    d.querySelector('[data-a=del]').onclick = () => {
+      if (!confirm(`「${rec.name}」を削除しますか？`)) return;
+      map.removeLayer(rec.layer);
+      const pane = map.getPane(rec.pane); if (pane) pane.style.display = 'none';
+      const i = refLayers.indexOf(rec); if (i >= 0) refLayers.splice(i,1);
+      renderRefLayers(); applyRefLayerOrder();
+    };
+    box.appendChild(d);
+  });
+}
+async function addGeoJsonFile(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); }
+  catch (e) { throw new Error(`${file.name}: JSONとして読めません (${e.message})`); }
+  if (!data || !['FeatureCollection','Feature'].includes(data.type)) throw new Error(`${file.name}: GeoJSONのFeatureCollection/Featureではありません`);
+  const features = data.type === 'FeatureCollection' ? (data.features || []) : [data];
+  if (!features.length) throw new Error(`${file.name}: フィーチャがありません`);
+  const fields = [...new Set(features.flatMap(f => Object.keys(f.properties || {})))];
+  const rec = {id:refSeq++, name:(data.name || file.name.replace(/\.(geojson|json)$/i,'')), data,
+    count:features.length, fields, field:refDefaultField(fields), visible:true, labels:true,
+    kind:refGeometryKind(features), pane:null, shape:'diamond', color:'#ef4444', size:8,
+    lineColor:'#dc2626', lineWidth:3, lineOpacity:.9, lineDash:'solid', layer:null};
+  rebuildRefLayer(rec);
+  refLayers.unshift(rec); // 一覧の上 = 地図の最前面
+  renderRefLayers();
+  applyRefLayerOrder();
+  const b = rec.layer.getBounds(); if (b && b.isValid()) map.fitBounds(b, {padding:[40,40], maxZoom:15});
+  toast(`${rec.name} を追加しました（${rec.count.toLocaleString()}件）`, 3500);
+}
+function chooseGeoJson() { $('fileGeoJson').click(); }
+$('btnGeoJson').onclick = chooseGeoJson;
+$('btnGeoJson2').onclick = chooseGeoJson;
+$('fileGeoJson').onchange = async ev => {
+  const files = [...ev.target.files]; ev.target.value = '';
+  for (const f of files) {
+    try { await addGeoJsonFile(f); }
+    catch (e) { alert('GeoJSON読込失敗: ' + e.message); }
+  }
+};
+renderRefLayers();
+function undelta(a) {
+  const out = []; let x = 0, y = 0;
+  for (let i = 0; i < a.length; i += 2) { x += a[i]; y += a[i+1]; out.push([y / SCALE, x / SCALE]); }
+  return out;
+}
+async function api(path, body, retry = true) {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  const j = await r.json();
+  // DRM版がまだメモリに無い(読込中) → 読込完了を待ってからやり直す
+  if (r.status === 503 && j.loading && retry && await ensureVersion(j.v)) return api(path, body, false);
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+// ---------- DRM版 ----------
+let VERS = [], DEFAULT_VER = null;
+const verLabel = v => { const x = VERS.find(x => x.v === v); return x ? `DRM${v}（${x.label}）` : `DRM${v}`; };
+function curVer() { const r = active(); return (r && r.ver) || DEFAULT_VER; }
+const pendingVer = {};
+// 版を使える状態にする(未読込ならサーバに読込を頼み、進捗画面を出して待つ)
+function ensureVersion(v) {
+  if (!v) return Promise.resolve(true);
+  if (!pendingVer[v]) pendingVer[v] = (async () => {
+    try {
+      const st = await (await fetch(`/api/load?v=${v}`, {cache:'no-store'})).json();
+      return st.ready ? true : await waitReady(v, `${verLabel(v)} を読込中`);
+    } finally { delete pendingVer[v]; }
+  })();
+  return pendingVer[v];
+}
+
+// 交通規制種別コード(正方向 = ノード1→ノード2)
+const REG = {2:'通行禁止(条件無)', 3:'通行禁止(条件付)', 4:'一方通行 正方向(ノード1→2)', 5:'一方通行 逆方向(ノード2→1)',
+             6:'一方通行 正方向・条件付', 7:'一方通行 逆方向・条件付', 8:'一方通行 正逆切替'};
+const ONEWAY_KEY = 'drm_link_picker_oneway';
+const ONEWAY_OPTS = ['all', 'strict', 'off'];
+
+// 一方通行リンクの中央に進行方向の矢印(くの字)を描く
+function drawArrow(pts, forward, color) {
+  if (pts.length < 2) return;
+  const P = pts.map(p => map.project(p, 20));
+  let total = 0; const seg = [];
+  for (let i = 1; i < P.length; i++) { const d = P[i].distanceTo(P[i-1]); seg.push(d); total += d; }
+  if (!total) return;
+  let half = total / 2, i = 0;
+  while (i < seg.length - 1 && half > seg[i]) { half -= seg[i]; i++; }
+  const a = P[i], b = P[i+1], t = seg[i] ? half / seg[i] : 0;
+  const mid = L.point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+  let dx = b.x - a.x, dy = b.y - a.y; const n = Math.hypot(dx, dy) || 1;
+  dx /= n; dy /= n; if (!forward) { dx = -dx; dy = -dy; }
+  const s = 6 * Math.pow(2, 20 - map.getZoom());  // 画面上でおよそ6px
+  const tip = L.point(mid.x + dx * s, mid.y + dy * s);
+  const w1 = L.point(mid.x - dx * s - dy * s, mid.y - dy * s + dx * s);
+  const w2 = L.point(mid.x - dx * s + dy * s, mid.y - dy * s - dx * s);
+  L.polyline([w1, tip, w2].map(p => map.unproject(p, 20)), {renderer:linkRenderer, color, weight:2.5, opacity:.95, interactive:false})
+    .addTo(linkLayer);
+}
+
+// ---------- DRMリンク表示 ----------
+let linkAbort = null;
+let shownLinks = [], shownNodes = [];   // いま地図に表示しているリンク・ノード(経由地の候補探しに使う)
+function clsForZoom(z) { return z >= 14 ? 9 : z >= 13 ? 7 : z >= 11 ? 6 : z >= 9 ? 3 : 0; }
+async function loadLinks() {
+  const z = map.getZoom(), cls = clsForZoom(z), b = map.getBounds();
+  if (linkAbort) linkAbort.abort();
+  linkAbort = new AbortController();
+  const sig = linkAbort.signal;
+  if (!cls) { linkLayer.clearLayers(); nodeLayer.clearLayers(); shownLinks = []; shownNodes = []; $('status').textContent = 'ズームインするとDRMリンクを表示します'; return; }
+  const ver = curVer();
+  $('status').textContent = `${verLabel(ver)} リンク読込中...`;
+  const q = `w=${b.getWest()}&s=${b.getSouth()}&e=${b.getEast()}&n=${b.getNorth()}&v=${ver}`;
+  try {
+    if (!await ensureVersion(ver)) return;
+    if (sig.aborted) return;
+    const tol = z <= 12 ? 1.5 * 360 / 256 / Math.pow(2, z) : 0;  // 広域表示は約1.5px未満の形状点を間引く
+    const r = await (await fetch(`/api/links?${q}&cls=${cls}&tol=${tol}`, {signal:sig})).json();
+    const ar = active(), use = c => !ar || ar.types.includes(c);
+    linkLayer.clearLayers();
+    shownLinks = []; shownNodes = [];
+    for (const [id, mc, c, rno, co, reg, len] of r.links) {
+      const col = (CLS[c] || CLS[9])[1];
+      const pts = undelta(co);
+      const lk = {id, mc, c, pts, reg, len};
+      shownLinks.push(lk);
+      const tip = `${mc}<br>${(CLS[c]||CLS[9])[0]}${rno ? ' / 路線' + rno : ''}${REG[reg] ? '<br>' + REG[reg] : ''}`;
+      const pl = L.polyline(pts, {renderer:linkRenderer, color:col, weight: c <= 3 ? 3 : 2, opacity: use(c) ? .85 : .2})
+        .bindTooltip(tip, {sticky:true})
+        .addTo(linkLayer);
+      if (len) pl.on('mousemove', e => pl.setTooltipContent(tip + distTip(lk, measureOnLink(lk, e.latlng))));
+      pl.on('click', e => { if (pickMode(active())) return; L.DomEvent.stopPropagation(e); showLinkInfo(lk, e.latlng); });
+      if (z >= 15 && reg >= 4 && reg <= 7 && use(c)) drawArrow(pts, reg === 4 || reg === 6, reg <= 5 ? '#b91c1c' : '#c2410c');
+    }
+    nodeLayer.clearLayers();
+    let nodeMsg = `（ズーム${NODE_ZOOM}以上でノード表示）`;
+    if (z >= NODE_ZOOM) {
+      const ns = await (await fetch(`/api/nodes?${q}${typesParam(ar)}`, {signal:sig})).json();
+      for (const [key, lon, lat] of ns) {
+        const nd = {key, lat, lon};
+        shownNodes.push(nd);
+        const cm = L.circleMarker([lat, lon], {renderer:linkRenderer, radius: z >= 16 ? 5 : 4, color:'#333', weight:1.5,
+                                               fillColor:'#fff', fillOpacity:1, bubblingMouseEvents:false})
+          .bindTooltip(() => 'ノード ' + key + '<br>' + pickHint(), {direction:'top', offset:[0, -4]})
+          .addTo(nodeLayer);
+        cm.on('mouseover', () => cm.setStyle({fillColor:'#facc15', color:'#000'}));
+        cm.on('mouseout', () => cm.setStyle({fillColor:'#fff', color:'#333'}));
+        cm.on('click', () => pickNode(nd));
+      }
+      nodeMsg = ` / ノード ${ns.length.toLocaleString()} 個`;
+    }
+    $('status').textContent = `${verLabel(ver)}｜表示リンク ${r.links.length.toLocaleString()} 本${nodeMsg}` +
+      (cls < 9 ? `（ズーム${z}：${cls <= 3 ? '国道以上' : cls <= 6 ? '県道以上' : '市道以上'}のみ）` : '') + (r.truncated ? ' ※上限で打切' : '');
+  } catch (e) { if (e.name !== 'AbortError') $('status').textContent = 'リンク読込エラー: ' + e.message; }
+}
+map.on('moveend', () => { if ($('boot').style.display === 'none') loadLinks(); });
+
+// ---------- リンク上の距離(起点ノードから) ----------
+// マウスを乗せるとツールチップに、そのリンクの起点ノード(一方通行は上流側、双方向はノード1)からの距離を出す。
+// 右クリックで固定すると、起点(緑)・地点(黄)をドラッグで任意のノード・リンク上の地点に動かせ、測る経路(紫)の線を
+// ドラッグすると経由ノード・経由リンクを足せる(リンク拾いと同じ操作)。経路は距離優先の経路検索で求める。
+// 地点のあるリンクは形状に沿って測り、DRMのリンク長に比例配分する(反対側のノードでちょうどリンク長になる)
+const distLayer = L.layerGroup().addTo(map);
+const distOrigin = new Map();   // リンクID → 起点(1=ノード1 / 2=ノード2)。利用者が切り替えたものだけ覚える(ツールチップ用)
+const DIST_COLOR = '#7c3aed';
+function defaultOrigin(reg) { return reg === 5 || reg === 7 ? 2 : 1; }   // 一方通行は上流側、双方向はノード1
+function linkOrigin(lk) { return distOrigin.get(lk.id) || defaultOrigin(lk.reg); }
+function linkNodeNos(mc) { const s = mc.split('-')[1] || ''; return [s.slice(0, 5), s.slice(5, 10)]; }
+function linkNode(lk, o) {   // リンクのノード1/2 → 経路検索の地点(ノード番号はサーバがリンクから引く)
+  const p = o === 1 ? lk.pts[0] : lk.pts[lk.pts.length - 1];
+  return {key: `N${o}:${lk.id}:${lk.mc}`, lat: p[0], lon: p[1]};
+}
+const fmtM = x => x.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:1}) + ' m';
+function measureOnLink(lk, ll) {
+  const kx = Math.cos(ll.lat * Math.PI / 180) * 111320, ky = 111320, p = lk.pts;
+  let total = 0, best = Infinity, at = 0, snap = p[0], seg = 0;
+  for (let i = 0; i < p.length - 1; i++) {
+    const ax = (p[i][1] - ll.lng) * kx, ay = (p[i][0] - ll.lat) * ky;
+    const vx = (p[i+1][1] - p[i][1]) * kx, vy = (p[i+1][0] - p[i][0]) * ky, L2 = vx * vx + vy * vy, sl = Math.sqrt(L2);
+    const t = L2 ? Math.max(0, Math.min(1, -(ax * vx + ay * vy) / L2)) : 0;
+    const dd = (ax + t * vx) ** 2 + (ay + t * vy) ** 2;
+    if (dd < best) {
+      best = dd; at = total + t * sl; seg = i;
+      snap = [p[i][0] + (p[i+1][0] - p[i][0]) * t, p[i][1] + (p[i+1][1] - p[i][1]) * t];
+    }
+    total += sl;
+  }
+  const d1 = total ? Math.min(lk.len, at / total * lk.len) : 0;
+  return {d1, d2: lk.len - d1, off: Math.sqrt(best), snap, seg};
+}
+function distTip(lk, m) {
+  const o = linkOrigin(lk);
+  return `<br><span style="color:#555">起点ノード${o}（${linkNodeNos(lk.mc)[o - 1]}）から ${fmtM(o === 1 ? m.d1 : m.d2)}` +
+         ` / リンク長 ${fmtM(lk.len)}<br><small>クリックで番号表示・コピー / 右クリックで距離を固定（起点・経路を選べます）</small></span>`;
+}
+// 画面上で px 以内の、表示中のDRMリンクで一番近いもの
+function nearestLinkAt(ll, px) {
+  const tol = px * 40075016.686 * Math.cos(ll.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
+  let best = null;
+  for (const lk of shownLinks) {
+    if (!lk.len) continue;
+    const m = measureOnLink(lk, ll);
+    if (m.off <= tol && (!best || m.off < best.m.off)) best = {lk, m};
+  }
+  return best;
+}
+
+// 固定中の計測: {lk, m(地点), origin(起点ノード), vias(経由地), legs, ver, busy, err, pop}
+let dist = null;
+const distBox = L.control({position:'topright'});
+distBox.onAdd = () => { const d = L.DomUtil.create('div', 'distbox'); L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d); return d; };
+const distR = () => ({types: ALL_TYPES, ver: dist ? dist.ver : curVer()});   // 経由地の候補探し(viaFinder等)用
+const distKeys = s => [s.origin.key, ...s.vias.map(w => w.key), `L:${s.lk.id}:${s.lk.mc}`];
+function startDist(lk, m) {
+  closeDist();
+  linkLayer.eachLayer(x => x.closeTooltip());   // マウスを乗せた時のツールチップと重ならないように
+  const o = linkOrigin(lk);
+  dist = {lk, m, origin: linkNode(lk, o), originEnd: o, vias: [], legs: [], ver: curVer()};   // originEnd: 起点が地点のリンクのノード1/2か
+  measureDist();
+}
+function closeDist() {
+  const s = dist;
+  dist = null; distLayer.clearLayers();
+  distBox.remove();
+}
+async function measureDist() {
+  const s = dist;
+  if (!s) return;
+  const keys = distKeys(s);
+  s.busy = true; s.err = null; renderDist();
+  try {
+    const j = await api('/api/route', {waypoints: keys, oneway: $('oneway').value, mode: 'dist', v: s.ver, dist: 1});
+    if (dist !== s || JSON.stringify(distKeys(s)) !== JSON.stringify(keys)) return;   // 計算中に変更された
+    s.origin = j.nodes[0];
+    s.legs = j.legs.map(leg => leg.map(l => ({...l, pts: undelta(l.c)})));
+  } catch (e) {
+    if (dist !== s) return;
+    s.err = e.message; s.legs = [];
+  }
+  s.busy = false; renderDist();
+}
+// 経路の最後は地点のリンク。入った側のノードから地点までだけを数える
+function distResult(s) {
+  const ls = s.legs.flat(), last = ls[ls.length - 1];
+  if (!last || last.id !== s.lk.id) return null;
+  const fromN1 = last.dir === '正', part = fromN1 ? s.m.d1 : s.m.d2;
+  const before = ls.slice(0, -1).reduce((a, l) => a + (l.len1 != null ? l.len1 : l.len), 0);
+  return {total: before + part, before, part, fromN1, n: ls.length};
+}
+function partPts(lk, m, fromN1) {
+  return fromN1 ? [...lk.pts.slice(0, m.seg + 1), m.snap] : [m.snap, ...lk.pts.slice(m.seg + 1)];
+}
+function renderDist() {
+  distLayer.clearLayers();
+  const s = dist;
+  if (!s) return;
+  const res = distResult(s);
+  // 測る経路(紫)。線をドラッグすると経由地を追加
+  s.legs.forEach((leg, li) => leg.forEach((l, k) => {
+    const isLast = li === s.legs.length - 1 && k === leg.length - 1 && res;
+    const pts = isLast ? partPts(s.lk, s.m, res.fromN1) : l.pts;
+    L.polyline(pts, {renderer:routeRenderer, color:'#fff', weight:9, opacity:.9, interactive:false}).addTo(distLayer);
+    L.polyline(pts, {renderer:routeRenderer, color:DIST_COLOR, weight:5, opacity:.9, bubblingMouseEvents:false})
+      .bindTooltip(`${l.mc}（${l.dir}） ${fmtM(isLast ? res.part : l.len1 != null ? l.len1 : l.len)}${isLast ? '（地点まで）' : ''}` +
+                   `<br><small>ドラッグで経由地を追加</small>`, {sticky:true})
+      .on('mousedown', e => { if (e.originalEvent.button === 0) distLineDrag(li, e); })
+      .addTo(distLayer);
+  }));
+  // 経由地(ドラッグで移動・右クリックで削除)
+  s.vias.forEach((w, i) => {
+    const m = L.marker([w.lat, w.lon], {icon: wpIcon({wps: [0, ...s.vias, 0]}, i + 1), draggable:true, zIndexOffset:1000})
+      .bindTooltip(`距離の経由地 ${wpLabel(w)}<br><small>ドラッグで移動 / 右クリックで削除</small>`, {direction:'top', offset:[0, -10]})
+      .addTo(distLayer);
+    distMarkerDrag(m, true, nd => { s.vias[i] = nd; });
+    m.on('contextmenu', e => { L.DomEvent.stop(e); s.vias.splice(i, 1); measureDist(); });
+  });
+  // 起点(緑・ノードへドラッグ)と地点(黄・リンク上へドラッグ)
+  const om = L.marker([s.origin.lat, s.origin.lon], {draggable:true, zIndexOffset:1200,
+      icon: L.divIcon({className:'', iconSize:[22, 22], iconAnchor:[11, 11],
+                       html:'<div class="wp-icon" style="width:22px;height:22px;line-height:18px;background:#16a34a;font-size:12px">起</div>'})})
+    .bindTooltip(`起点 ノード ${s.origin.key}<br><small>ドラッグで別のノードに変更</small>`, {direction:'top', offset:[0, -12]})
+    .addTo(distLayer);
+  distMarkerDrag(om, false, nd => { s.origin = nd; s.originEnd = null; });
+  const pm = L.marker(s.m.snap, {draggable:true, zIndexOffset:1300,
+      icon: L.divIcon({className:'', iconSize:[16, 16], iconAnchor:[8, 8],
+                       html:'<div class="wp-icon" style="width:16px;height:16px;background:#facc15;border-color:#000"></div>'})})
+    .bindTooltip('地点<br><small>ドラッグでリンク上の別の地点に変更</small>', {direction:'bottom', offset:[0, 10]})
+    .addTo(distLayer);
+  let pc = null;
+  pm.on('dragstart', () => { pc = null; pm.closeTooltip(); setViaDrag(true); });
+  pm.on('drag', ev => { pc = nearestLinkAt(ev.latlng, LINK_SNAP_PX); showCand(pc ? {link: pc.lk} : null, null); });
+  pm.on('dragend', () => {
+    candLayer.clearLayers(); setViaDrag(false); noClick();
+    if (pc && dist === s) { if (pc.lk.id !== s.lk.id) s.originEnd = null; s.lk = pc.lk; s.m = pc.m; measureDist(); }
+    else { pm.setLatLng(s.m.snap); if (!pc) toast('リンクの線の上に置いてください'); }
+  });
+  // 結果は地図右上の小さな枠に出す(経路の上に重ならないように。×で閉じる)
+  const nos = linkNodeNos(s.lk.mc), oneway = s.lk.reg >= 4 && s.lk.reg <= 7;
+  const nodeBtn = o => {
+    const on = s.originEnd === o && !s.vias.length;
+    return `<button class="small" data-o="${o}"${on ? ' disabled' : ''}>ノード${o}（${nos[o - 1]}）${oneway && o === defaultOrigin(s.lk.reg) ? '＝上流' : ''}</button>`;
+  };
+  const head = s.busy ? '<span style="color:#666">計測中...</span>'
+    : s.err ? `<span style="color:#b91c1c">${esc(s.err)}</span>`
+    : !res ? '<span style="color:#b91c1c">距離を測れませんでした</span>'
+    : `起点から <b style="font-size:15px">${fmtM(res.total)}</b>` +
+      (res.n > 1 ? `<br><small>（${res.n - 1}リンク ${fmtM(res.before)} ＋ 地点のリンク上 ${fmtM(res.part)}）</small>` : '');
+  const oLabel = /^N[12]:/.test(s.origin.key) ? `ノード${s.originEnd}（${nos[s.originEnd - 1]}）` : `ノード ${esc(s.origin.key)}`;
+  const html = `<a class="x" data-a="close" title="閉じる">×</a><b>リンク上の距離</b><br>起点 ${oLabel}${s.vias.length ? `　経由地 ${s.vias.length}か所` : ''}<br>` +
+    `地点 ${s.lk.mc}　${REG[s.lk.reg] || '双方向'} / リンク長 ${fmtM(s.lk.len)}<br>${head}<br>` +
+    `<span style="color:#666">起点をこのリンクの</span> ${nodeBtn(1)} ${nodeBtn(2)}<br>` +
+    `<button class="small" data-a="copy"${res && !s.busy ? '' : ' disabled'}>コピー</button>` +
+    (s.vias.length ? ' <button class="small" data-a="clear">経由地をすべて削除</button>' : '') +
+    `<br><small style="color:#666">緑の「起」・黄の地点をドラッグで移動<br>紫の線をドラッグで経由地を追加（経由地は右クリックで削除）</small>`;
+  if (!distBox.getContainer() || !distBox.getContainer().parentNode) distBox.addTo(map);
+  const el = distBox.getContainer();
+  el.innerHTML = html;
+  // ボタンで枠の中身を書き換えると、押したボタンが外れて地図のクリックと見なされるため、ここで止める
+  el.onclick = e => e.stopPropagation();
+  el.querySelector('[data-a=close]').onclick = closeDist;
+  el.querySelectorAll('[data-o]').forEach(b => b.onclick = () => {
+    const o = +b.dataset.o;
+    distOrigin.set(s.lk.id, o);
+    s.origin = linkNode(s.lk, o); s.originEnd = o; s.vias = []; measureDist();
+  });
+  const cp = el.querySelector('[data-a=copy]');
+  if (cp) cp.onclick = () => {
+    const t = [s.origin.key, s.lk.mc, res.total.toFixed(1)].join('\t');
+    navigator.clipboard.writeText(t).then(() => toast('コピーしました（起点ノード・地点のMatchCode・距離m のタブ区切り）'),
+                                          () => prompt('コピーしてください', t));
+  };
+  const cl = el.querySelector('[data-a=clear]');
+  if (cl) cl.onclick = () => { s.vias = []; measureDist(); };
+}
+const noClick = () => { suppressClick = true; setTimeout(() => suppressClick = false, 300); };   // ドラッグを離した時の地図クリックを無視
+// 起点・経由地のマーカーをドラッグ → 候補(起点はノードのみ、経由地はノードかリンク)に付け替える
+function distMarkerDrag(m, allowLink, set) {
+  const s = dist;
+  let find = null, cand = null;
+  m.on('dragstart', () => { find = viaFinder(distR(), allowLink); cand = null; m.closeTooltip(); setViaDrag(true); });
+  m.on('drag', ev => { if (find) { cand = find(map.latLngToLayerPoint(ev.latlng)); showCand(cand, null); } });
+  m.on('dragend', async () => {
+    const ll = m.getLatLng();
+    candLayer.clearLayers(); setViaDrag(false); noClick();
+    const nd = await candToWp(distR(), cand, ll);
+    if (dist !== s) return;
+    if (!nd) return renderDist();
+    set(nd); measureDist();
+  });
+}
+// 測る経路の線をドラッグして経由地を追加(リンク拾いの経路線と同じ)
+function distLineDrag(li, e) {
+  const s = dist;
+  L.DomEvent.stop(e.originalEvent);
+  map.dragging.disable();
+  const ghost = L.marker(e.latlng, {icon: wpIcon({wps:[0,0,0]}, 1), interactive:false}).addTo(map);
+  const find = viaFinder(distR(), true);
+  setViaDrag(true);
+  let moved = false, cand = null, raf = 0, lastLp = null;
+  const onMove = ev => {
+    moved = true; ghost.setLatLng(ev.latlng); lastLp = ev.layerPoint;
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; cand = find(lastLp); showCand(cand, ghost); });
+  };
+  const onUp = async () => {
+    map.off('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp, true);
+    map.dragging.enable();
+    suppressClick = true; setTimeout(() => suppressClick = false, 300);
+    if (raf) { cancelAnimationFrame(raf); raf = 0; if (lastLp) cand = find(lastLp); }
+    const ll = ghost.getLatLng();
+    map.removeLayer(ghost); candLayer.clearLayers(); setViaDrag(false);
+    if (!moved || dist !== s) return;
+    const nd = await candToWp(distR(), cand, ll);
+    if (!nd || dist !== s) return;
+    s.vias.splice(li, 0, nd);
+    measureDist();
+  };
+  map.on('mousemove', onMove);
+  document.addEventListener('mouseup', onUp, true);
+}
+map.on('contextmenu', e => {
+  const b = nearestLinkAt(e.latlng, 8);
+  if (b) startDist(b.lk, b.m);
+});
+
+// ---------- リンク・ノードの番号(クリックで表示・コピー) ----------
+// 始点・終点を選んでいる最中(ノードを選ぶ状態)はこれまでどおり経路の選択になる
+function copyText(t, what) {
+  navigator.clipboard.writeText(t).then(() => toast(`${what}をコピーしました`), () => prompt('コピーしてください', t));
+}
+const copyBtn = (t, what) => `<button class="small" data-copy="${esc(t)}" data-what="${esc(what)}">コピー</button>`;
+const infoRow = (k, v, c = '') => `<tr><td style="color:#666;padding-right:8px;white-space:nowrap">${k}</td><td style="padding-right:6px"><b>${v}</b></td><td>${c}</td></tr>`;
+// 情報は地図右上の枠に出す(地図上の吹き出しだと選んだリンクに重なるため)。×か、地図の何も無い所をクリックで閉じる
+const infoHi = L.layerGroup().addTo(map);   // クリックしたリンク・ノードの強調(枠を閉じると消す)
+const HI_COLOR = '#06b6d4';
+const infoBox = L.control({position:'topright'});
+infoBox.onAdd = () => { const d = L.DomUtil.create('div', 'distbox'); L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d); return d; };
+const infoOpen = () => !!(infoBox.getContainer() && infoBox.getContainer().parentNode);
+let infoSeq = 0;   // 読込中に別のリンクを選んだら古い結果は出さない
+function openInfo(html) {
+  if (!infoOpen()) infoBox.addTo(map);
+  const el = infoBox.getContainer();
+  el.innerHTML = '<a class="x" data-a="close" title="閉じる">×</a>' + html;
+  el.onclick = e => {
+    e.stopPropagation();
+    const b = e.target.closest('[data-copy]');
+    if (b) copyText(b.dataset.copy, b.dataset.what);
+    if (e.target.closest('[data-a=close]')) closeInfo();
+  };
+}
+function closeInfo() { infoSeq++; infoBox.remove(); infoHi.clearLayers(); }
+map.on('click', () => { if (!suppressClick && infoOpen()) closeInfo(); });
+async function showLinkInfo(lk) {
+  const my = ++infoSeq;
+  linkLayer.eachLayer(x => x.closeTooltip());
+  infoHi.clearLayers();
+  const o = {pane:'candPane', interactive:false};
+  L.polyline(lk.pts, {...o, color:'#fff', weight:14, opacity:.95}).addTo(infoHi);
+  L.polyline(lk.pts, {...o, color:HI_COLOR, weight:8, opacity:1}).addTo(infoHi);
+  [lk.pts[0], lk.pts[lk.pts.length - 1]].forEach((p, k) =>
+    L.circleMarker(p, {...o, radius:6, color:'#0e7490', weight:2, fillColor:'#fff', fillOpacity:1})
+      .bindTooltip('ノード' + (k + 1), {permanent:true, direction:k ? 'right' : 'left', offset:[k ? 6 : -6, 0], className:'hi-tip'}).addTo(infoHi));
+  const head = infoRow('リンク', lk.mc, copyBtn(lk.mc, 'リンク番号(MatchCode)'));
+  openInfo(`<table>${head}<tr><td colspan="3" style="color:#666">読込中...</td></tr></table>`);
+  let html;
+  try {
+    const j = await api(`/api/linkinfo?id=${lk.id}&mc=${encodeURIComponent(lk.mc)}&v=${curVer()}`);
+    html = `<table>${head}` +
+      infoRow('ノード1', j.n1, copyBtn(j.n1, 'ノード1の番号')) +
+      infoRow('ノード2', j.n2, copyBtn(j.n2, 'ノード2の番号')) +
+      infoRow('道路', esc(`${j.cname} ${j.rname}`)) +
+      infoRow('規制', REG[j.reg] || '双方向') +
+      infoRow('リンク長', fmtM(j.len)) +
+      (j.cen ? infoRow('センサス', `${j.cen} ${esc(j.cenName)}`, copyBtn(j.cen, 'センサス区間番号')) : '') +
+      `</table><div style="margin-top:4px">${copyBtn([j.mc, j.n1, j.n2].join('\t'), 'リンク・ノード1・ノード2の番号(タブ区切り)').replace('>コピー<', '>リンク・ノード1・ノード2をまとめてコピー<')}</div>`;
+  } catch (e) {
+    html = `<table>${head}</table><div style="color:#b91c1c">${esc(e.message)}</div>`;
+  }
+  if (my === infoSeq && infoOpen()) openInfo(html);   // 読込中に閉じた・別を開いたときは出さない
+}
+function showNodeInfo(nd) {
+  const r = active();
+  infoSeq++;
+  infoHi.clearLayers();
+  L.circleMarker([nd.lat, nd.lon], {pane:'candPane', interactive:false, radius:11, color:HI_COLOR, weight:4, fill:false}).addTo(infoHi);
+  openInfo(`<table>${infoRow('ノード', nd.key, copyBtn(nd.key, 'ノード番号'))}` +
+    infoRow('緯度,経度', `${nd.lat.toFixed(6)}, ${nd.lon.toFixed(6)}`, copyBtn(`${nd.lat.toFixed(6)}\t${nd.lon.toFixed(6)}`, '緯度・経度')) + '</table>' +
+    `<small style="color:#666">${r ? '始点・終点にするときは、経路の「始点」「終点」ボタンを押してからクリック' : '経路を作るときは「＋ 経路追加」'}</small>`);
+}
+
+// ---------- 経路 ----------
+let routes = [];       // {id,name,color,wps:[{key,lat,lon}],legs:[[link]],err,busy}
+let activeId = null;
+let seq = 1;
+const routeLayers = {};  // id -> layerGroup
+
+function active() { return routes.find(r => r.id === activeId); }
+function newRoute(init = {}) {
+  const r = {id: seq++, name: init.name || `経路${routes.length + 1}`, color: init.color || PALETTE[routes.length % PALETTE.length],
+             wps: init.wps || [], legs: [], err: null, busy: false, pick: null,
+             types: (init.types && init.types.length ? init.types : ALL_TYPES).slice(),
+             rev: !!init.rev,   // rev: リンク順番を逆にする(終点側のリンクを1番)
+             ver: VERS.some(x => x.v === init.ver) ? init.ver : (active() && active().ver) || DEFAULT_VER};  // DRM版
+  routes.push(r);
+  routeLayers[r.id] = L.layerGroup().addTo(map);
+  return r;
+}
+function allLinks(r) {
+  const out = [];
+  r.legs.forEach((leg, li) => leg.forEach(l => out.push({...l, leg: li})));
+  return out;
+}
+// 出力・一覧用: リンク順番を付けたリンク一覧(rev なら終点側のリンクが1番)
+function orderedLinks(r) {
+  const ls = allLinks(r).map((l, k) => ({...l, k}));
+  const n = ls.length;
+  ls.forEach(l => l.no = r.rev ? n - l.k : l.k + 1);
+  return r.rev ? ls.reverse() : ls;
+}
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(routes.map(r => ({name:r.name, color:r.color, wps:r.wps, types:r.types, rev:r.rev, ver:r.ver})))); } catch (e) {}
+}
+
+// auto: 起動時・設定読込時の引き直し(利用状況の「検索回数」に数えない)
+async function compute(r, auto = false) {
+  r.legs = []; r.err = null; r.notes = null;   // 逆方向複製時の確認結果は、経路を変えたら消す
+  if (!r.wps.length) { drawRoute(r); renderList(); return; }
+  r.busy = r.wps.length >= 2; renderList();
+  const reqWps = r.wps.map(w => w.key);
+  try {
+    const j = await api('/api/route', {waypoints: reqWps, oneway: $('oneway').value, mode: $('mode').value, types: r.types, v: r.ver, auto});
+    if (JSON.stringify(r.wps.map(w => w.key)) !== JSON.stringify(reqWps)) return;  // 計算中に変更された
+    r.wps = j.nodes;  // ノード座標をサーバ値で更新(設定読込時など)
+    r.legs = j.legs.map(leg => leg.map(l => ({...l, pts: undelta(l.c)})));
+  } catch (e) { r.err = e.message; }
+  r.busy = false;
+  drawRoute(r); renderList(); save();
+}
+
+// 経由地はノード(交差点)のほか、リンクも指定できる(key = 'L:リンク番号:MATCHCODE')。
+// 1リンクだけの迂回路や、同じノード間に並ぶ別リンクを通したいときはノードでは指定できないため。
+const isLinkWp = w => !!(w && w.key && String(w.key).startsWith('L:'));
+const wpLabel = w => isLinkWp(w) ? 'リンク ' + w.mc : 'ノード ' + w.key;
+const LINK_WP_COLOR = '#f59e0b';
+// ドラッグ中の経由地の候補。カーソルが白丸(ノード)に近ければノード、リンクの線上ならそのリンクを浮かせて見せ、
+// 離したときに見えていたものを経由地にする(表示中のリンク・ノードから画面上の距離で探す)
+const NODE_SNAP_PX = 6, LINK_SNAP_PX = 12;   // ノードは白丸の真上のときだけ(広いとズーム14ではほぼノードになる)
+map.createPane('candPane').style.zIndex = 450;   // 経路線より上・マーカーより下
+const candLayer = L.layerGroup().addTo(map);
+// ドラッグ中はリンク・ノードのツールチップを隠す(候補のリンクに重なって見えなくなるため)
+const setViaDrag = on => $('map').classList.toggle('via-drag', on);
+function viaFinder(r, allowLink) {
+  const lp = ll => map.latLngToLayerPoint(ll);
+  const nodes = shownNodes.map(n => ({n, p: lp([n.lat, n.lon])}));
+  const links = allowLink ? shownLinks.filter(l => r.types.includes(l.c)).map(l => ({l, P: l.pts.map(lp)})) : [];
+  return p => {
+    let bn = null, bd = NODE_SNAP_PX;
+    for (const x of nodes) { const d = x.p.distanceTo(p); if (d < bd) { bd = d; bn = x.n; } }
+    if (bn) return {node: bn};
+    let bl = null, bq = null; bd = LINK_SNAP_PX;
+    for (const x of links) {
+      for (let i = 1; i < x.P.length; i++) {
+        const q = L.LineUtil.closestPointOnSegment(p, x.P[i - 1], x.P[i]), d = q.distanceTo(p);
+        if (d < bd) { bd = d; bl = x.l; bq = q; }
+      }
+    }
+    if (!bl) return null;
+    const ll = map.layerPointToLatLng(bq);
+    return {link: bl, lat: ll.lat, lon: ll.lng};
+  };
+}
+function showCand(c, ghost) {
+  candLayer.clearLayers();
+  const o = {pane:'candPane', interactive:false};
+  if (c && c.link) {
+    L.polyline(c.link.pts, {...o, color:'#fff', weight:16, opacity:.95}).addTo(candLayer);
+    L.polyline(c.link.pts, {...o, color:LINK_WP_COLOR, weight:10, opacity:1}).addTo(candLayer);
+  }
+  if (c && c.node) L.circleMarker([c.node.lat, c.node.lon], {...o, radius:9, color:'#0284c7', weight:3, fillColor:'#facc15', fillOpacity:1}).addTo(candLayer);
+  if (ghost) {
+    ghost.setIcon(c && c.link ? wpIcon({wps:[0, {key:'L:'}, 0]}, 1) : wpIcon({wps:[0, 0, 0]}, 1));
+    const msg = !c ? '最寄りのノードを経由地にします' : c.link ? `経由リンク ${c.link.mc}` : `経由ノード ${c.node.key}`;
+    if (ghost.getTooltip()) ghost.setTooltipContent(msg);
+    else ghost.bindTooltip(msg, {permanent:true, direction:'top', offset:[0, -18], className:'via-tip'}).openTooltip();
+  }
+}
+// 候補 → 経由地。候補が無い(ノード・リンク非表示のズーム等)ときは最寄りノード
+async function candToWp(r, c, ll) {
+  if (c && c.node) return {key: c.node.key, lat: c.node.lat, lon: c.node.lon};
+  if (c && c.link) return {key: `L:${c.link.id}:${c.link.mc}`, lat: c.lat, lon: c.lon, mc: c.link.mc, link: true};
+  return api(`/api/nearest?lat=${ll.lat}&lon=${ll.lng}${typesParam(r)}&v=${r.ver}`);
+}
+
+function wpIcon(r, i) {
+  if (isLinkWp(r.wps[i])) {
+    return L.divIcon({className:'', iconSize:[21, 21], iconAnchor:[10.5, 10.5],
+      html:`<div class="wp-icon wp-link" style="background:${LINK_WP_COLOR}"><span>${i}</span></div>`});
+  }
+  const n = r.wps.length, isS = i === 0, isE = i === n - 1 && n > 1;
+  const sz = isS || isE ? 22 : 16;
+  const bg = isS ? '#16a34a' : isE ? '#dc2626' : '#0284c7';
+  const label = isS ? 'S' : isE ? 'E' : i;
+  return L.divIcon({className:'', iconSize:[sz, sz], iconAnchor:[sz/2, sz/2],
+    html:`<div class="wp-icon" style="width:${sz}px;height:${sz}px;line-height:${sz-4}px;background:${bg};font-size:${isS||isE?12:10}px">${label}</div>`});
+}
+
+let suppressClick = false;
+function drawRoute(r) {
+  const g = routeLayers[r.id];
+  g.clearLayers();
+  const isAct = r.id === activeId;
+  const links = allLinks(r);
+  links.forEach((l, k) => {
+    L.polyline(l.pts, {renderer:routeRenderer, color:'#fff', weight: isAct ? 9 : 6, opacity:.9, interactive:false}).addTo(g);
+  });
+  // 経由リンクを橙で縁取り
+  const viaMc = new Set(r.wps.filter(isLinkWp).map(w => w.mc));
+  if (viaMc.size) links.filter(l => viaMc.has(l.mc)).forEach(l =>
+    L.polyline(l.pts, {renderer:routeRenderer, color:LINK_WP_COLOR, weight: isAct ? 14 : 10, opacity:.85, interactive:false}).addTo(g));
+  links.forEach((l, k) => {
+    const pl = L.polyline(l.pts, {renderer:routeRenderer, color: l.hw ? ROUTE_HW_COLOR : ROUTE_COLOR, weight: isAct ? 6 : 4, opacity: isAct ? .95 : .5, bubblingMouseEvents:false})
+      .bindTooltip(`<b>${esc(r.name)}</b> #${k + 1}<br>${l.mc}（${l.dir}）<br>${esc(l.cname)} ${esc(l.rname)}${l.hw ? '（自専道）' : ''}${
+        l.cen ? `<br>センサス ${l.cen} ${esc(l.cenName)} ${l.cenDir}` : ''}${REG[l.reg] ? '<br>' + REG[l.reg] : ''}${
+        l.wrong ? '<br><b style="color:#b91c1c">⚠ 一方通行を逆走</b>' : ''}`, {sticky:true})
+      .addTo(g);
+    pl.on('mousedown', e => {
+      if (e.originalEvent.button !== 0) return;
+      if (r.id !== activeId) { setActive(r.id); return; }
+      startLineDrag(r, l.leg, e);
+    });
+    l._pl = pl;
+  });
+  if (isAct) {
+    r.wps.forEach((w, i) => {
+      const m = L.marker([w.lat, w.lon], {icon: wpIcon(r, i), draggable:true, zIndexOffset:1000, autoPan:true})
+        .bindTooltip((i === 0 ? '始点' : i === r.wps.length - 1 ? '終点' : '経由' + i) + ' ' + wpLabel(w) +
+                      '<br><small>クリックでメニュー / ドラッグで移動' + (i > 0 && i < r.wps.length - 1 ? ' / 右クリックで削除' : '') + '</small>')
+        .addTo(g);
+      m.on('click', e => { L.DomEvent.stop(e); m.closeTooltip(); openWpMenu(r, i, m.getLatLng()); });
+      // ドラッグ中は候補(経由地はノードかリンク、始終点はノードのみ)を浮かせて見せる
+      const isVia = i > 0 && i < r.wps.length - 1;
+      let find = null, cand = null;
+      m.on('dragstart', () => { find = viaFinder(r, isVia); cand = null; m.closeTooltip(); setViaDrag(true); });
+      m.on('drag', ev => { if (find) { cand = find(map.latLngToLayerPoint(ev.latlng)); showCand(cand, null); } });
+      m.on('dragend', async () => {
+        const ll = m.getLatLng();
+        candLayer.clearLayers(); setViaDrag(false);
+        const nd = await candToWp(r, cand, ll);
+        if (!nd) return drawRoute(r);
+        r.wps[i] = nd; drawRoute(r); compute(r);
+        if (isVia) toast(isLinkWp(nd) ? `経由リンク ${nd.mc} を通る経路にしました` : `経由ノード ${nd.key} を通る経路にしました`);
+      });
+      m.on('contextmenu', e => {
+        L.DomEvent.stop(e);
+        if (i > 0 && i < r.wps.length - 1) removeVia(r, i);
+      });
+    });
+  }
+}
+
+// 経由地・始終点のメニュー(マーカーをクリック)
+function removeVia(r, i) {
+  map.closePopup();
+  r.wps.splice(i, 1); drawRoute(r); compute(r);
+  toast('経由地を削除しました');
+}
+function openWpMenu(r, i, latlng) {
+  const n = r.wps.length, w = r.wps[i];
+  const kind = i === 0 ? '始点' : i === n - 1 ? '終点' : '経由地 ' + i;
+  const d = L.DomUtil.create('div', 'wpmenu');
+  d.innerHTML = `<div class="ttl">${kind}${isLinkWp(w) ? '（経由リンク）' : ''}</div><div class="sub">${wpLabel(w)}</div>`;
+  const btn = (label, cls, fn) => { const b = L.DomUtil.create('button', 'small ' + cls, d); b.textContent = label; b.onclick = fn; };
+  if (i > 0 && i < n - 1) btn('🗑 この経由地を削除', 'danger', () => removeVia(r, i));
+  else btn(`${kind}を選び直す（ノードをクリック）`, '', () => { map.closePopup(); setPick(r, i === 0 ? 'S' : 'E'); });
+  if (n > 2) btn('経由地をすべて削除', 'danger', () => {
+    map.closePopup(); r.wps = [r.wps[0], r.wps[n - 1]]; drawRoute(r); compute(r); toast('経由地をすべて削除しました');
+  });
+  btn('閉じる', '', () => map.closePopup());
+  L.DomEvent.disableClickPropagation(d);
+  L.popup({offset:[0, -6], closeButton:false, autoPanPadding:[40, 40]}).setLatLng(latlng).setContent(d).openOn(map);
+}
+
+// 経路線をドラッグして経由地を追加
+function startLineDrag(r, legIdx, e) {
+  L.DomEvent.stop(e.originalEvent);
+  map.dragging.disable();
+  const ghost = L.marker(e.latlng, {icon: wpIcon({wps:[0,0,0]}, 1), interactive:false}).addTo(map);
+  const find = viaFinder(r, true);
+  setViaDrag(true);
+  let moved = false, cand = null, raf = 0, lastLp = null;
+  const onMove = ev => {
+    moved = true; ghost.setLatLng(ev.latlng); lastLp = ev.layerPoint;
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; cand = find(lastLp); showCand(cand, ghost); });
+  };
+  const onUp = async ev => {
+    map.off('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp, true);
+    map.dragging.enable();
+    suppressClick = true; setTimeout(() => suppressClick = false, 300);
+    if (raf) { cancelAnimationFrame(raf); raf = 0; if (lastLp) cand = find(lastLp); }
+    const ll = ghost.getLatLng();
+    map.removeLayer(ghost); candLayer.clearLayers(); setViaDrag(false);
+    if (!moved) return;
+    const nd = await candToWp(r, cand, ll);
+    if (!nd) return;
+    r.wps.splice(legIdx + 1, 0, nd);
+    drawRoute(r); compute(r);
+    toast(isLinkWp(nd) ? `経由リンク ${nd.mc} を追加しました` : `経由ノード ${nd.key} を追加しました`, 3000);
+  };
+  map.on('mousemove', onMove);
+  document.addEventListener('mouseup', onUp, true);
+}
+
+// ---------- ノード選択 ----------
+// いま選ぼうとしているもの: 'S'(始点) / 'E'(終点) / null
+function pickMode(r) {
+  if (!r) return null;
+  return r.pick || (r.wps.length === 0 ? 'S' : r.wps.length === 1 ? 'E' : null);
+}
+function pickHint() {
+  const r = active();
+  if (!r) return '<small>クリックでノード番号を表示・コピー</small>';
+  const m = pickMode(r);
+  return m ? `<small>クリックで <b>${esc(r.name)}</b> の${m === 'S' ? '始点' : '終点'}に設定</small>`
+           : '<small>クリックでノード番号を表示・コピー</small>';
+}
+function updateCursor() { $('map').classList.toggle('picking', !!pickMode(active())); }
+
+function pickNode(nd) {
+  const r = active();
+  const m = r && pickMode(r);
+  if (!m) { showNodeInfo(nd); return; }   // 始点・終点を選んでいないときは番号の表示・コピー
+  if (m === 'S') {
+    if (r.wps.length) r.wps[0] = nd; else r.wps.push(nd);
+  } else {
+    if (!r.wps.length) { toast('先に始点ノードを選んでください'); r.pick = 'S'; renderList(); return; }
+    if (r.wps.length >= 2) r.wps[r.wps.length - 1] = nd; else r.wps.push(nd);
+  }
+  r.pick = r.wps.length === 1 ? 'E' : null;
+  toast(r.pick === 'E' ? '始点を設定しました。次に終点ノードをクリック' : (m === 'S' ? '始点' : '終点') + 'を設定しました');
+  drawRoute(r); renderList(); compute(r);
+}
+function setPick(r, m) {
+  if (activeId !== r.id) setActive(r.id);
+  r.pick = r.pick === m ? null : m;
+  renderList();
+  if (r.pick) toast(`地図上のノード(白丸)をクリックして${m === 'S' ? '始点' : '終点'}を選んでください` +
+                    (map.getZoom() < NODE_ZOOM ? `（ズーム${NODE_ZOOM}以上で表示）` : ''));
+}
+
+map.on('click', () => {
+  if (suppressClick) return;
+  const r = active();
+  if (!r) { toast('先に「＋ 経路追加」で経路を作成してください'); return; }
+  if (pickMode(r)) toast(map.getZoom() < NODE_ZOOM ? `ズーム${NODE_ZOOM}以上に拡大するとノード(白丸)が表示されます。ノードをクリックして選択`
+                                                     : 'ノード(白丸)をクリックして選択してください');
+  else toast('経路線をドラッグ → 経由地追加 / S・E・経由マーカーをドラッグ → 変更');
+});
+document.addEventListener('keydown', e => {
+  const r = active();
+  if (e.key === 'Escape' && r && r.pick) { r.pick = null; renderList(); }
+});
+
+function setActive(id) {
+  const prev = active();
+  activeId = id;
+  if (prev) drawRoute(prev);
+  const r = active();
+  if (r) drawRoute(r);
+  renderList();
+  if (prev !== r) loadLinks();
+}
+
+// ---------- DRM版の切替・経路の複製 ----------
+function distM(a, b) {
+  const k = Math.cos(a.lat * Math.PI / 180);
+  return Math.hypot((a.lon - b.lon) * k, a.lat - b.lat) * 111320;
+}
+// 各地点を指定の版の最寄りノードに付け替える(ノード番号は版で変わることがあるため)
+async function snapToVersion(r, v) {
+  let far = 0;
+  const out = [];
+  for (const w of r.wps) {
+    let nd;
+    if (isLinkWp(w)) {   // 経由リンクは新しい版の最寄りリンクに付け替える
+      const j = await api(`/api/nearestlink?lat=${w.lat}&lon=${w.lon}${typesParam(r)}&v=${v}`);
+      if (j.link) { const {c, dist, ...lw} = j.link; nd = lw; }
+    } else nd = await api(`/api/nearest?lat=${w.lat}&lon=${w.lon}${typesParam(r)}&v=${v}`);
+    if (!nd) throw new Error(`DRM${v} に近い${isLinkWp(w) ? 'リンク' : 'ノード'}がありません`);
+    if (distM(w, nd) > 30) far++;
+    out.push(nd);
+  }
+  return {wps: out, far};
+}
+async function changeVersion(r, v) {
+  if (r.ver === v) return;
+  const old = r.ver;
+  if (!await ensureVersion(v)) { renderList(); return; }
+  try {
+    const {wps, far} = r.wps.length ? await snapToVersion(r, v) : {wps: [], far: 0};
+    r.ver = v; r.wps = wps;
+    if (active() !== r) setActive(r.id); else loadLinks();
+    drawRoute(r); save(); compute(r);
+    toast(`${verLabel(v)} に切り替えました` + (far ? `（${far} 地点は30m以上離れたノードに付け替え。位置を確認してください）` : ''), far ? 6000 : 3000);
+  } catch (e) { r.ver = old; renderList(); alert(e.message); }
+}
+function duplicateRoute(r) {
+  const c = newRoute({name: r.name + '_コピー', types: r.types, rev: r.rev, ver: r.ver, wps: r.wps.map(w => ({...w}))});
+  setActive(c.id); save();
+  if (c.wps.length) compute(c);
+  toast('複製しました。経路名称とDRM版を変えてください', 4000);
+}
+// 逆方向の複製。双方向のリンクは同じリンクを逆向きに、上下線分離などで逆向きに通れない区間は
+// サーバーが反対車線(同じセンサス区間・同じ路線の近くのリンク)を探して作る
+async function duplicateReverse(r) {
+  const links = allLinks(r);
+  if (!links.length || r.busy) { toast('経路ができてから押してください'); return; }
+  toast('逆方向の経路を作成中…', 10000);
+  try {
+    const j = await api('/api/reverse', {v: r.ver, links: links.map(l => [l.id, l.dir === '正' ? 1 : 0]),
+                                         oneway: $('oneway').value, mode: $('mode').value, types: r.types});
+    const c = newRoute({name: r.name + '_逆', types: r.types, rev: r.rev, ver: r.ver, wps: j.nodes});
+    c.legs = j.legs.map(leg => leg.map(l => ({...l, pts: undelta(l.c)})));
+    c.notes = j.notes || [];
+    setActive(c.id); save();
+    const nw = c.notes.filter(x => x.kind === 'warn').length;
+    toast(nw ? `逆方向の経路を作りました（⚠ 確認が必要な箇所 ${nw} 件。下の一覧を見てください）` : '逆方向の経路を作りました', nw ? 6000 : 3000);
+  } catch (e) { alert('逆方向の経路を作れませんでした: ' + e.message); }
+}
+
+const fmtMin = sec => sec >= 3600 ? `${Math.floor(sec / 3600)}時間${Math.round(sec % 3600 / 60)}分` : `${Math.max(1, Math.round(sec / 60))}分`;
+const MODE_KEY = 'drm_link_picker_mode';
+
+// ---------- サイドバー ----------
+function renderList() {
+  const box = $('routes');
+  box.innerHTML = '';
+  routes.forEach(r => {
+    const links = allLinks(r);
+    const len = links.reduce((s, l) => s + l.len, 0);
+    const d = document.createElement('div');
+    d.className = 'route' + (r.id === activeId ? ' active' : '');
+    const isAct = r.id === activeId, pm = isAct ? pickMode(r) : null;
+    const stat = pm ? `▶ 地図上のノード(白丸)をクリックして${pm === 'S' ? '始点' : '終点'}を選択` :
+      r.busy ? '経路計算中...' : r.err ? 'エラー: ' + r.err :
+      r.wps.length < 2 ? '「始点」「終点」ボタンでノードを選択' :
+      `${links.length} リンク / ${(len / 1000).toFixed(2)} km / 約${fmtMin(links.reduce((s, l) => s + (l.sec || 0), 0))} / 経由 ${r.wps.length - 2}`;
+    const nWrong = links.filter(l => l.wrong).length;
+    d.innerHTML = `<div class="row">
+        <input class="name" value="${esc(r.name)}" placeholder="経路名称">
+        <button class="small" data-a="del" title="経路を削除">削除</button>
+      </div><div class="row" style="margin-top:4px;font-size:12px"><span style="color:var(--mut)">DRM版：</span>
+        <select class="ver" data-a="ver" title="この経路で使うDRMのバージョン">${VERS.map(x =>
+          `<option value="${x.v}"${x.v === r.ver ? ' selected' : ''}>${x.v}（${x.label}）</option>`).join('')}</select>
+        <button class="small" data-a="dup" title="同じ始点・終点・経由地で経路を複製(DRM版を変えて出力したいとき等)">複製</button>
+        <button class="small" data-a="duprev" title="同じ道路を逆向きに通る経路を複製（上下線が分かれている区間は反対車線を自動で探します）">逆方向を複製</button>
+      </div><div class="row" style="margin-top:4px">
+        <button class="small${pm === 'S' ? ' on' : ''}" data-a="ps" title="ノードをクリックして始点を選ぶ">始点${r.wps[0] ? '：' + r.wps[0].key : ''}</button>
+        <button class="small${pm === 'E' ? ' on' : ''}" data-a="pe" title="ノードをクリックして終点を選ぶ">終点${r.wps.length > 1 ? '：' + r.wps[r.wps.length - 1].key : ''}</button>
+        <button class="small" data-a="rev" title="始点と終点を入れ替え(経路を逆向きに引き直す)">⇄</button>
+        <button class="small" data-a="clr" title="始終点・経由地をクリア">クリア</button>
+      </div>${isAct ? `<div class="types"><span class="lb">道路種別：</span>${TYPES.map(([c, nm]) =>
+        `<label><input type="checkbox" data-t="${c}"${r.types.includes(c) ? ' checked' : ''}>${nm}</label>`).join('')}
+        <button class="small" data-a="tall">全て</button></div>`
+      : r.types.length < ALL_TYPES.length ? `<div class="types-sum">道路種別：${TYPES.filter(t => r.types.includes(t[0])).map(t => t[1]).join('・')}</div>` : ''}
+      <div class="row" style="margin-top:4px;font-size:12px"><span style="color:var(--mut)">リンク順番：</span>
+        <button class="small rev${r.rev ? ' on' : ''}" data-a="order" title="出力するリンク順番の付け方を切り替え(経路・正逆はそのまま)">${
+          r.rev ? '終点側から 1,2,3…' : '始点側から 1,2,3…'}</button></div>
+      <div class="stat${pm ? ' pick' : r.err ? ' err' : ''}">${esc(stat)}${
+        nWrong && !pm && !r.busy ? ` <span class="warn">⚠ 一方通行逆走 ${nWrong} 本</span>` : ''}</div>`;
+    const typesChanged = () => { save(); loadLinks(); if (r.wps.length >= 2) compute(r); else renderList(); };
+    d.querySelectorAll('[data-t]').forEach(cb => cb.onchange = () => {
+      r.types = ALL_TYPES.filter(c => d.querySelector(`[data-t="${c}"]`).checked);
+      typesChanged();
+    });
+    const ta = d.querySelector('[data-a=tall]');
+    if (ta) ta.onclick = () => { r.types = ALL_TYPES.slice(); typesChanged(); };
+    d.querySelector('[data-a=order]').onclick = () => { r.rev = !r.rev; save(); renderList(); toast(r.rev ? '終点側のリンクを1番にしました' : '始点側のリンクを1番にしました'); };
+    d.querySelector('[data-a=ver]').onchange = ev => changeVersion(r, ev.target.value);
+    d.querySelector('[data-a=dup]').onclick = () => duplicateRoute(r);
+    d.querySelector('[data-a=duprev]').onclick = () => duplicateReverse(r);
+    d.querySelector('[data-a=ps]').onclick = () => setPick(r, 'S');
+    d.querySelector('[data-a=pe]').onclick = () => setPick(r, 'E');
+    d.addEventListener('click', ev => { if (ev.target.tagName !== 'INPUT' && ev.target.tagName !== 'BUTTON' && r.id !== activeId) setActive(r.id); });
+    d.querySelector('.name').addEventListener('focus', () => { if (r.id !== activeId) { activeId = r.id; routes.forEach(drawRoute); renderDetail(); box.querySelectorAll('.route').forEach(x => x.classList.toggle('active', x === d)); } });
+    d.querySelector('.name').addEventListener('input', ev => { r.name = ev.target.value; save(); renderDetail(); });
+    d.querySelector('[data-a=rev]').onclick = () => { r.wps.reverse(); drawRoute(r); compute(r); };
+    d.querySelector('[data-a=clr]').onclick = () => { r.wps = []; r.pick = 'S'; compute(r); drawRoute(r); save(); };
+    d.querySelector('[data-a=del]').onclick = () => {
+      if (!confirm(`「${r.name}」を削除しますか？`)) return;
+      map.removeLayer(routeLayers[r.id]); delete routeLayers[r.id];
+      routes = routes.filter(x => x !== r);
+      if (activeId === r.id) activeId = routes.length ? routes[routes.length - 1].id : null;
+      routes.forEach(drawRoute); renderList(); save();
+    };
+    box.appendChild(d);
+  });
+  updateCursor();
+  renderDetail();
+}
+
+function renderDetail() {
+  const box = $('detail');
+  const r = active();
+  if (!r) {
+    box.innerHTML = `<div class="help">
+      <b>使い方</b><br>
+      1. 「＋ 経路追加」で経路を作り、経路名称と <b>DRM版</b> を選ぶ（同じ始終点で版を変えたいときは「複製」して経路名称と版を変更）。「<b>逆方向を複製</b>」で同じ道路を逆向きに通る経路を作成（上下線が分かれている区間は、同じセンサス区間・同じ路線の反対車線を自動で探す。高速などで始終点が分離区間にあるときは、反対車線の同じセンサス区間のリンクを始終点にする。往路と食い違う箇所は⚠で表示）<br>
+      2. ズーム${NODE_ZOOM}以上でDRMノードが <b>白丸</b> で表示されます<br>
+      3. ノードをクリック → <b>始点(S)</b>、続けてもう1つクリック → <b>終点(E)</b><br>
+      4. 始点→終点の経路が自動で選ばれます（既定はDRMの規制速度で所要時間が最短。上の「経路の選び方」で距離最短にも切替可）<br>
+      5. 始点・終点を選び直す：経路の「始点」「終点」ボタン → ノードをクリック<br>
+      6. 経路線を <b>ドラッグ</b> → 経由地を追加して経路を変更。ドラッグ中、カーソルの下の候補が浮き上がります（<b>白丸＝経由ノード</b>は青い輪、<b>リンクの線上＝経由リンク</b>は橙の太線）。離すと浮いていたものが経由地になります。経由リンクは橙のひし形で、そのリンクを必ず通ります。1リンクだけの迂回路や、同じノード間に並ぶ別のリンクを通したいときは経由リンクで<br>
+      7. S・E・経由マーカーを <b>ドラッグ</b> → 最寄りノードへ移動 / マーカーを <b>クリック</b> → メニュー（経由地の削除など）。経由マーカーの右クリックでも削除できます<br>
+      8. 経路ごとに <b>道路種別</b> をチェック → チェックした種別のリンクだけで経路を探索（対象外は地図上で薄く表示）<br>
+      9. リンク順番は経路ごとに「始点側から」「終点側から」を切替可（経路・正逆・MatchCodeは変わりません）<br>
+      10. 「Excel出力」でファイル名を入れて全経路のリンクを出力（ダウンロードフォルダに保存。保存先を選びたいときはEdgeの設定で「ダウンロード時の動作を毎回確認する」をオン）（シート「東京戦略室方式」：MatchCode＋正逆 / シート「中部方式」：ノード番号を上流→下流に並べたMatchCode。両シートにR3センサスの基本区間番号・路線名称・方向(上り/下り)も出力）。<b>各列の詳しいルール</b>は出力Excelの「出力ルール」シート、またはツールフォルダの「20_使い方と出力ルール（見なくても良い）.txt」<br>
+      11. <b>ID検索</b>（検算用）：上の欄にリンクMatchCode（中部方式の並びも可）・ノード番号・センサス区間番号（11桁）を入れてEnter → 該当するリンク・ノードを地図に<b>ピンク</b>で表示し、種別・路線名・センサス区間・規制などを一覧表示。Excelから縦に複数貼り付けて一度に検索できます（表示中のDRM版で検索）<br>
+      12. <b>リンク上の距離</b>：DRMリンクにマウスを乗せると、起点ノードからその地点までの距離を表示（一方通行は上流側、双方向はノード1が起点）。<b>右クリック</b>で固定すると、緑の「起」を任意のノードへ、黄の地点を任意のリンク上へドラッグでき、紫の測る経路の線をドラッグすると経由ノード・経由リンクを追加できます（経由地は右クリックで削除）。経路は距離優先で探し、地点のリンクは形状に沿って測ってDRMのリンク長に比例配分。コピーで 起点ノード・MatchCode・距離 を貼り付けられます<br>
+      13. <b>番号のコピー</b>：DRMリンクをクリックするとリンク番号（MatchCode）・両端のノード番号・センサス区間番号を、ノード（白丸）をクリックするとノード番号・緯度経度を表示し、それぞれ「コピー」で貼り付けられます（始点・終点を選んでいる最中は、これまでどおり経路の選択）<br>
+      14. <b>下絵</b>：地図右上のボタンで 地理院（淡色・標準）／Googleマップ／Google航空写真 を切替（選んだ下絵はこのPCで覚えます）<br>
+      15. <b>参照GeoJSON</b>：「＋ GeoJSON追加」で手元のGeoJSON（主要渋滞箇所など）を地図に重ねて表示（このブラウザ内だけで表示し、DRMの経路探索には使いません）。左の「参照GeoJSONレイヤ」で表示・ラベル・形・色・大きさ・線の種類・重なり順を変更、地物をクリックで属性を表示。画面を開き直すと消えます<br>
+      ※経路探索はDRMの交通規制種別コードで一方通行の逆走を避けます（上の「一方通行」で切替）。
+      ズーム15以上で一方通行リンクに進行方向の矢印（赤：条件無 / 橙：条件付）を表示します。<br>
+      ※「トラカン（国交省）を表示」で直轄国道のトラカンを地図に表示。四角の左上=上り・右下=下りを、直近1か月の平日平均とセンサス(R3)時間交通量の誤差率で色分け（青=少ない・赤=多い）。クリックで時間帯別の比較グラフ。<br>
+      ※「トラカン（JARTIC・県警）を表示」でズーム12以上の県警の感知器を矢印（向き＝進行方向）で表示。社内SQL Serverの最新月の平日平均とセンサスの誤差率で色分け。<br>
+      ※グラフのポップアップの「📥 ダウンロードに追加」でも、グラフを見て妥当と判断した地点をダウンロード対象に追加できます（「トラカンデータをダウンロード…」の選択モードに入らなくてもOK）。ダウンロード画面には選択中の地点の一覧と、全地点にデータがある期間を表示します。<br>
+      ※「利用状況」で支社・役職別にどの機能がどれくらい使われているかを集計できます（初回起動時のアンケートと操作の記録から）。</div>`;
+    return;
+  }
+  const links = orderedLinks(r);
+  const tag = (i, n) => i === 0 ? ['S','#16a34a','始点'] : i === n - 1 ? ['E','#dc2626','終点'] : [i, '#0284c7', '経由'];
+  box.innerHTML = `<h2>${esc(r.name)}　<span style="font-weight:normal;color:var(--mut)">${verLabel(r.ver)}</span></h2>
+    <ul class="wps">${r.wps.map((w, i) => { const [t, c, lb] = tag(i, r.wps.length);
+      return `<li><span class="tag" style="background:${isLinkWp(w) ? LINK_WP_COLOR : c}">${t}</span>${lb} ${wpLabel(w)}
+        <button class="small" data-i="${i}" title="この地点へ移動">表示</button>${
+        i > 0 && i < r.wps.length - 1 ? `<button class="small" data-del="${i}" title="この経由地を削除">削除</button>` : ''}</li>`; }).join('')}</ul>
+    ${r.notes && r.notes.length ? `<div class="revnotes"><b>逆方向の確認</b>${r.notes.map((x, k) =>
+      `<div class="rn ${x.kind}"${x.lat ? ` data-n="${k}" title="クリックで地図を移動"` : ''}>${x.kind === 'ok' ? '✓' : x.kind === 'warn' ? '⚠' : 'ℹ'} ${esc(x.msg)}</div>`).join('')}</div>` : ''}
+    ${links.length ? `<table><thead><tr><th>順番</th><th>リンクMatchCode</th><th>正逆</th><th>延長(m)</th><th>速度</th><th>種別</th><th>路線名称</th><th>センサス区間</th><th>方向</th></tr></thead><tbody>
+    ${links.map((l, k) => `<tr class="lk${l.wrong ? ' wrong' : ''}" data-k="${k}"${l.wrong ? ` title="逆走：${REG[l.reg]}"` : ''}><td>${l.no}</td><td>${l.mc}</td><td>${l.dir}${l.wrong ? ' ⚠逆走' : ''}</td><td>${l.len}</td><td title="${l.kmhSrc ? '規制速度' : '規制速度が未調査のため道路種別からの仮の値'}">${l.kmh || ''}${l.kmhSrc ? '' : '*'}</td><td>${esc((TYPES.find(t => t[0] === l.cls) || [0, l.cname])[1])}${l.hw ? ' <span style="color:' + ROUTE_HW_COLOR + '">●自専</span>' : ''}</td><td>${esc(l.rname)}</td><td title="${esc(l.cenName || '')}">${l.cen || ''}</td><td>${l.cenDir || ''}</td></tr>`).join('')}
+    </tbody></table>` : ''}`;
+  box.querySelectorAll('.wps button[data-i]').forEach(b => b.onclick = () => { const w = r.wps[+b.dataset.i]; map.setView([w.lat, w.lon], Math.max(map.getZoom(), 16)); });
+  box.querySelectorAll('.wps button[data-del]').forEach(b => b.onclick = () => removeVia(r, +b.dataset.del));
+  box.querySelectorAll('.revnotes [data-n]').forEach(el => el.onclick = () => {
+    const x = r.notes[+el.dataset.n];
+    map.setView([x.lat, x.lon], Math.max(map.getZoom(), 16));
+    L.circleMarker([x.lat, x.lon], {pane:'candPane', radius:18, color:'#dc2626', weight:3, fill:false}).addTo(candLayer);
+    setTimeout(() => candLayer.clearLayers(), 2500);
+  });
+  let hl = null;
+  box.querySelectorAll('tr.lk').forEach(tr => {
+    const l = links[+tr.dataset.k];
+    tr.onmouseenter = () => { hl = L.polyline(l.pts, {renderer:routeRenderer, color:'#ffeb3b', weight:10, opacity:.9, interactive:false}).addTo(map); };
+    tr.onmouseleave = () => { if (hl) map.removeLayer(hl); hl = null; };
+    tr.onclick = () => map.fitBounds(L.latLngBounds(l.pts), {maxZoom:17, padding:[60, 60]});
+  });
+}
+
+// ---------- 出力・保存 ----------
+// Excelの「出力ルール」シート(ツールフォルダの「20_使い方と出力ルール（見なくても良い）.txt」と同じ内容)
+const OUTPUT_RULES = [
+  ['共通', '1行の単位', '経路を構成する1リンク。2つのシートの違いは方向の表し方だけ'],
+  ['東京戦略室方式', 'リンクMatchCode', 'DRMのMATCHCODEそのまま。「メッシュ-ノード1(5桁)ノード2(5桁)」で、ノード1はノード番号の小さい方'],
+  ['東京戦略室方式', '正逆', '進行方向が ノード1→ノード2 なら「正」、ノード2→ノード1 なら「逆」'],
+  ['中部方式', 'リンクMatchCode', 'ノード番号を進行方向の上流→下流の順に並べたもの。正方向に通るリンクはMATCHCODEそのまま、逆方向に通るリンクはノード1とノード2を入れ替える（例：533946-061230B622 を逆方向に通る → 533946-0B62206123）。正逆列は無い'],
+  ['共通', '経路名称', '画面で付けた経路の名前'],
+  ['共通', 'DRMバージョン', 'その経路で使ったDRMの版（3503／3603／3703／3803 など。上2桁は平成換算の年度・下2桁は月の基準年月：3803 → 2026年度の3月 ＝ 2027年3月時点）'],
+  ['共通', 'リンク順番', '既定は始点側（最上流）のリンクが1の連番。経路ごとに「終点側から」に切替可。切り替えても変わるのは番号だけで、正逆・MatchCodeは始点→終点の進行方向のまま'],
+  ['共通', '道路種別名', 'DRMの種別CDの名称'],
+  ['共通', '路線名称', 'DRMの種別・路線番号・行政CDから作成（例：国道1号、愛知県道60号、名古屋市道）。高速道路は「高速自動車国道(路線番号○)」'],
+  ['共通', 'センサス基本区間番号', '令和3年度 道路交通センサスの交通調査基本区間番号（11桁・文字列）。DRMの「調査単位」（10桁：都道府県コードの一の位＋道路種別＋路線番号＋区間番号）に都道府県コードの十の位を補って作成。平成27年度の区間番号を持つDRM版（3503など）は箇所別基本表の「平成27年度／交通調査基本区間番号」でR3の番号に読み替え。センサスの調査区間でないリンクは空欄'],
+  ['共通', 'センサス路線名称', '令和3年度 箇所別基本表の「路線名」'],
+  ['共通', 'センサス方向', '上り／下り。DRMの「管起点N」（路線の起点側の端）からリンクに入る場合が 起点→終点 = 下り、反対が上り'],
+  ['経路の選び方', '所要時間が最短（既定）', 'リンク長÷DRMの規制速度が最小の経路。規制速度コード 1=20km/h（仕様書は30km/h未満） 2=40 3=50 4=60 5=70 6=80 7=100 9=120。未調査（0）は道路種別ごとの仮の速度（高速本線80・ランプ40・SA等20、国道・県道40、市道・その他30）'],
+  ['経路の選び方', '距離が最短', 'リンク長の合計が最小の経路'],
+  ['経路の選び方', '一方通行', '既定は逆走させない（DRMの交通規制種別コードで判断。条件付規制も含む）'],
+];
+function stamp() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+}
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type}));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+$('btnAdd').onclick = () => {
+  const r = newRoute(); r.pick = 'S'; setActive(r.id); save();
+  toast('地図上のノード(白丸)をクリックして始点を選んでください' + (map.getZoom() < NODE_ZOOM ? `（ズーム${NODE_ZOOM}以上で表示）` : ''));
+};
+// sheets(/api/xlsxの形式)をExcelとして保存する。ファイル名を入力 → ブラウザの通常のダウンロードで保存
+// (ダウンロードフォルダ。Edgeの設定「ダウンロード時の動作を毎回確認する」をオンにすると保存先も選べる)。
+// ※以前はEdgeの保存ダイアログ(showSaveFilePicker)で保存先を選んでいたが、Edge 157 で2回目以降に保存できなくなったためやめた
+// キャンセルした場合は何もせず戻る。保存したら true を返す(利用状況の記録用)。
+async function saveXlsx(sheets, defName) {
+  const v = prompt('出力ファイル名（ダウンロードフォルダに保存します）', defName);
+  if (v === null) return;
+  let name = (v.trim() || defName).replace(/[\\/:*?"<>|]/g, '_');
+  if (!/\.xlsx$/i.test(name)) name += '.xlsx';
+  const res = await fetch('/api/xlsx', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sheets})});
+  if (!res.ok) throw new Error(res.statusText);
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  toast(`ダウンロードフォルダに保存しました：${name}`, 4000);
+  return true;
+}
+// 画面側でしか分からない操作を利用状況として記録(失敗しても何もしない)
+function logUsage(e, detail = {}) {
+  fetch('/api/usage/log', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({e, ...detail})}).catch(() => {});
+}
+
+$('btnXlsx').onclick = async () => {
+  const bad = routes.filter(r => r.wps.length >= 2 && (r.busy || r.err));
+  if (bad.length && !confirm(`計算中またはエラーの経路があります（${bad.map(r => r.name).join('、')}）。出力しますか？`)) return;
+  const tokyo = [], chubu = [];
+  routes.forEach(r => orderedLinks(r).forEach(l => {
+    tokyo.push([l.mc, l.dir, r.name, +r.ver, l.no, l.cname, l.rname, l.cen || '', l.cenName || '', l.cenDir || '']);
+    chubu.push([l.mc2, r.name, +r.ver, l.no, l.cname, l.rname, l.cen || '', l.cenName || '', l.cenDir || '']);
+  }));
+  if (!tokyo.length) { toast('出力するリンクがありません'); return; }
+  const sheets = [
+    {name:'東京戦略室方式', header:['リンクMatchCode', '正逆', '経路名称', 'DRMバージョン', 'リンク順番', '道路種別名', '路線名称',
+       'センサス基本区間番号', 'センサス路線名称', 'センサス方向'],
+     widths:[20, 6, 18, 14, 10, 24, 26, 20, 26, 12], rows:tokyo},
+    {name:'中部方式', header:['リンクMatchCode', '経路名称', 'DRMバージョン', 'リンク順番', '道路種別名', '路線名称',
+       'センサス基本区間番号', 'センサス路線名称', 'センサス方向'],
+     widths:[20, 18, 14, 10, 24, 26, 20, 26, 12], rows:chubu},
+    {name:'出力ルール', header:['シート', '項目', '説明'], widths:[16, 22, 120], rows:OUTPUT_RULES},
+  ];
+  // 全経路が同じ版ならファイル名にも版を入れる
+  const vs = [...new Set(routes.filter(r => allLinks(r).length).map(r => r.ver))];
+  const defName = `DRMリンク_${vs.length === 1 ? vs[0] + '_' : ''}${stamp()}.xlsx`;
+  try {
+    if (await saveXlsx(sheets, defName))
+      logUsage('link_out', {routes: routes.filter(r => allLinks(r).length).length, links: tokyo.length, v: vs.join(',')});
+  } catch (e) { alert('Excel出力に失敗しました: ' + e.message); }
+};
+$('btnSave').onclick = () => {
+  download(`DRMリンク設定_${stamp()}.json`, JSON.stringify({version:1, routes: routes.map(r => ({name:r.name, color:r.color, types:r.types, rev:r.rev, ver:r.ver, waypoints:r.wps.map(w => w.key), points:r.wps.map(w => [w.lat, w.lon])}))}, null, 1), 'application/json');
+};
+$('btnLoad').onclick = () => $('fileLoad').click();
+$('fileLoad').onchange = async ev => {
+  const f = ev.target.files[0]; ev.target.value = '';
+  if (!f) return;
+  try {
+    const j = JSON.parse(await f.text());
+    if (routes.length && !confirm('現在の経路を破棄して読み込みますか？（キャンセル＝追加読込）')) { await restore(j.routes, false); }
+    else await restore(j.routes, true);
+  } catch (e) { alert('読込失敗: ' + e.message); }
+};
+
+async function restore(list, replace) {
+  if (replace) { Object.values(routeLayers).forEach(g => map.removeLayer(g)); routes = []; for (const k in routeLayers) delete routeLayers[k]; }
+  const made = [];
+  for (const it of list || []) {
+    const keys = it.waypoints || (it.wps || []).map(w => w.key);
+    const pts = it.points || (it.wps || []).map(w => [w.lat, w.lon]);
+    const r = newRoute({name: it.name, color: it.color, types: it.types, rev: it.rev, ver: it.ver || DEFAULT_VER});
+    r.wps = keys.map((k, i) => ({key: k, lat: (pts[i] || [0])[0] || 0, lon: (pts[i] || [0, 0])[1] || 0}));
+    made.push(r);
+  }
+  if (made.length) activeId = made[made.length - 1].id;
+  renderList();
+  // 版ごとに順に計算(版の読込は1つずつ)
+  for (const v of [...new Set(made.map(r => r.ver))]) {
+    if (!await ensureVersion(v)) continue;
+    for (const r of made.filter(r => r.ver === v)) {
+      await compute(r, true);
+      // 版でノード番号が無い場合は、保存してある座標の最寄りノードに付け替えて再計算
+      if (r.err && /ノードが見つかりません/.test(r.err) && r.wps.every(w => w.lat)) {
+        try { r.wps = (await snapToVersion(r, v)).wps; await compute(r, true); } catch (e) {}
+      }
+    }
+  }
+  routes.forEach(drawRoute); renderList(); save();
+  const all = made.flatMap(r => allLinks(r).flatMap(l => l.pts).concat(r.wps.filter(w => w.lat).map(w => [w.lat, w.lon])));
+  if (all.length) map.fitBounds(L.latLngBounds(all), {padding:[40, 40]});
+}
+
+try { const v = localStorage.getItem(ONEWAY_KEY); if (v && ONEWAY_OPTS.includes(v)) $('oneway').value = v; } catch (e) {}
+try { const v = localStorage.getItem(MODE_KEY); if (v === 'time' || v === 'dist') $('mode').value = v; } catch (e) {}
+$('mode').onchange = () => {
+  try { localStorage.setItem(MODE_KEY, $('mode').value); } catch (e) {}
+  routes.filter(r => r.wps.length >= 2).forEach(compute);
+  toast($('mode').value === 'time' ? '所要時間が最短の経路で引き直します' : '距離が最短の経路で引き直します');
+};
+$('oneway').onchange = () => {
+  try { localStorage.setItem(ONEWAY_KEY, $('oneway').value); } catch (e) {}
+  routes.filter(r => r.wps.length >= 2).forEach(compute);
+};
+
+// ---------- トラカン(国交省) ----------
+// 誤差率 = (トラカン平日平均 − センサス) ÷ センサス。±50%で色が最も濃くなる(青:少ない / 赤:多い)
+const TK_KEY = 'drm_link_picker_torakan';
+const TK_MAX = 0.5;
+const tkLayer = L.layerGroup();
+let tkLoaded = false, tkMeta = null;
+function errColor(e) {
+  if (e === null || e === undefined) return '#d1d5db';
+  const t = Math.max(-1, Math.min(1, e / TK_MAX)), a = Math.abs(t);
+  const to = t < 0 ? [33, 102, 172] : [178, 24, 43];
+  return `rgb(${to.map(c => Math.round(247 + (c - 247) * a)).join(',')})`;
+}
+const fmtErr = e => e === null || e === undefined ? '―' : (e >= 0 ? '+' : '') + (e * 100).toFixed(1) + '%';
+const tkLegend = L.control({position:'bottomright'});
+tkLegend.onAdd = () => {
+  const d = L.DomUtil.create('div', 'legend tk-legend');
+  d.innerHTML = `<b>トラカン誤差率</b>（平日平均 vs センサス）<div class="bar"></div>
+    <div class="ticks"><span>-50%↓</span><span>0</span><span>+50%↑</span></div>
+    <div>□国交省：左上=上り／右下=下り　▲JARTIC：矢印=進行方向</div>
+    <div style="color:#6b7280">点線=センサス無し（チェック対象外）</div>`;
+  return d;
+};
+async function loadTorakan() {
+  const j = await api('/api/torakan');
+  tkLayer.clearLayers();
+  tkMeta = j;
+  if (!j.sites.length) { $('tkInfo').textContent = j.error || 'データなし'; return; }
+  $('tkInfo').textContent = `${j.period[0]}～${j.period[1]} 平日${j.weekdays}日 / ${j.sites.length}地点`;
+  for (const [id, kind, lat, lon, err, eu, ed, hasCen] of j.sites) {
+    const bg = `linear-gradient(135deg, ${errColor(eu)} 50%, ${errColor(ed)} 50%)`;
+    const icon = L.divIcon({className: '', iconSize: [16, 16], iconAnchor: [8, 8],
+      html: `<div class="tk-icon${hasCen ? '' : ' nocen'}" style="background:${bg}"></div>`});
+    L.marker([lat, lon], {icon, zIndexOffset: 500})
+      .bindTooltip(`トラカン ${kind} ${id.slice(2)}<br>誤差率 ${fmtErr(err)}（上り ${fmtErr(eu)} / 下り ${fmtErr(ed)}）${hasCen ? '' : '<br>センサス時間交通量なし（チェック対象外）'}`)
+      .on('click', () => tkDlMode ? tkDlToggle(id, 'mlit', lat, lon) : openTorakan(id, [lat, lon]))
+      .addTo(tkLayer);
+  }
+  tkLoaded = true;
+}
+// 24時間の折れ線(トラカン平日平均=実線 / センサス=橙の点線＋点)
+function tkChart(sensor, census) {
+  const W = 380, H = 150, L0 = 38, R0 = 8, T0 = 8, B0 = 22;
+  const vals = [...sensor, ...(census || [])].filter(v => v !== null && v !== undefined);
+  const ymax = Math.max(10, ...vals) * 1.1;
+  const x = h => L0 + (W - L0 - R0) * h / 23, y = v => T0 + (H - T0 - B0) * (1 - v / ymax);
+  const path = arr => { let s = '', pen = false; arr.forEach((v, h) => { if (v === null || v === undefined) { pen = false; return; } s += (pen ? 'L' : 'M') + x(h).toFixed(1) + ',' + y(v).toFixed(1); pen = true; }); return s; };
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const v = ymax * i / 4, yy = y(v).toFixed(1);
+    g += `<line x1="${L0}" x2="${W - R0}" y1="${yy}" y2="${yy}" stroke="#e5e7eb"/><text x="${L0 - 4}" y="${+yy + 3}" font-size="9" text-anchor="end" fill="#6b7280">${Math.round(v)}</text>`; }
+  for (let h = 0; h <= 23; h += 3) g += `<text x="${x(h)}" y="${H - 8}" font-size="9" text-anchor="middle" fill="#6b7280">${h}時</text>`;
+  const pts = (census || []).map((v, h) => v === null || v === undefined ? '' : `<circle cx="${x(h)}" cy="${y(v)}" r="2.5" fill="#f97316"/>`).join('');
+  return `<svg width="${W}" height="${H}" style="display:block">${g}
+    <path d="${path(sensor)}" fill="none" stroke="#2563eb" stroke-width="2"/>
+    ${census ? `<path d="${path(census)}" fill="none" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 3"/>${pts}` : ''}
+    <text x="${W - R0}" y="${T0 + 8}" font-size="10" text-anchor="end"><tspan fill="#2563eb">― トラカン平日平均</tspan>　<tspan fill="#f97316">- - センサス</tspan></text></svg>`;
+}
+async function openTorakan(id, latlng) {
+  const s = await api('/api/torakan/site?id=' + encodeURIComponent(id));
+  if (s.error) return;
+  const cen = s.census;
+  let h = `<div class="tk-pop"><h3>トラカン（${s.kind}）${s.code}</h3>
+    ${tkDlAddBtn(id, 'mlit', s.lat, s.lon)}
+    <div class="meta">
+    データ：${s.period[0]}～${s.period[1]} の平日 ${s.weekdays} 日の時間帯別平均（台/時）<br>
+    ${s.cen ? `センサス区間：${s.cen} ${esc(s.cenName || '')}（DRMリンクまで ${s.linkDist}m）` : '対応するセンサス区間なし'}<br>
+    ${cen ? `センサス：令和3年度 ${cen.date.slice(0, 4)}/${cen.date.slice(4, 6)}/${cen.date.slice(6)} 観測（${cen.kind}）` : 'センサス時間交通量なし → 妥当性チェック対象外'}
+    ${s.err !== undefined && s.err !== null ? `<br>上下合計の誤差率：<span class="err" style="color:${Math.abs(s.err) >= 0.2 ? '#b91c1c' : '#15803d'}">${fmtErr(s.err)}</span>` : ''}</div>`;
+  for (const d of ['上り', '下り']) {
+    const x = s.dirs[d];
+    if (!x) { h += `<div class="dir">${d}：観測なし</div>`; continue; }
+    h += `<div class="dir">${d}　誤差率 <span class="err" style="color:${x.err === undefined ? '#6b7280' : Math.abs(x.err) >= 0.2 ? '#b91c1c' : '#15803d'}">${fmtErr(x.err)}</span>
+      <span style="font-weight:normal;color:var(--mut)">${x.err !== undefined ? `（${x.hours}時間で比較：トラカン ${x.sensorSum.toLocaleString()} / センサス ${x.censusSum.toLocaleString()} 台、相関 ${x.r ?? '―'}）` : ''}</span></div>`;
+    h += tkChart(x.sensor, x.census);
+  }
+  h += `<div class="src">${esc(s.source)}</div></div>`;
+  L.popup({maxWidth: 420, autoPanPadding: [40, 40]}).setLatLng(latlng).setContent(h).openOn(map);
+}
+async function setTorakan(on) {
+  try { localStorage.setItem(TK_KEY, on ? '1' : ''); } catch (e) {}
+  if (on) {
+    if (!tkLoaded) { try { await loadTorakan(); } catch (e) { $('tkInfo').textContent = '読込エラー: ' + e.message; } }
+    tkLayer.addTo(map); tkLegend.addTo(map);
+  } else { map.removeLayer(tkLayer); if (!jkOn) tkLegend.remove(); }
+}
+$('tkShow').onchange = ev => setTorakan(ev.target.checked);
+
+// ---------- トラカン(JARTIC・都道府県警察の車両感知器) ----------
+// 地点数が多い(全国約3.7万)ため、ズーム12以上で表示範囲の地点だけを読む。1地点＝1方向(矢印の向き＝進行方向)
+const JK_KEY = 'drm_link_picker_jartic';
+const JK_ZOOM = 12;
+const jkLayer = L.layerGroup();
+let jkOn = false, jkAbort = null;
+function jkIcon(bearing, err, hasCen) {
+  const fill = errColor(hasCen ? err : null);
+  return L.divIcon({className: '', iconSize: [24, 24], iconAnchor: [12, 12],
+    html: `<svg width="24" height="24" style="transform:rotate(${bearing}deg);overflow:visible;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.6))"><polygon points="12,1 22,22 12,16 2,22"
+      fill="${fill}" stroke="${hasCen ? '#111827' : '#6b7280'}" stroke-width="1.8"${hasCen ? '' : ' stroke-dasharray="3 2"'}/></svg>`});
+}
+async function loadJartic() {
+  if (!jkOn) return;
+  if (jkAbort) jkAbort.abort();
+  jkAbort = new AbortController();
+  const z = map.getZoom(), b = map.getBounds();
+  if (z < JK_ZOOM) { jkLayer.clearLayers(); $('jkInfo').textContent = `（ズーム${JK_ZOOM}以上で表示）`; return; }
+  try {
+    const j = await (await fetch(`/api/jartic?w=${b.getWest()}&s=${b.getSouth()}&e=${b.getEast()}&n=${b.getNorth()}`, {signal: jkAbort.signal})).json();
+    jkLayer.clearLayers();
+    if (j.error) { $('jkInfo').textContent = j.error; return; }
+    $('jkInfo').textContent = `${j.month.replace('-', '年')}月 平日${j.weekdays}日 / 表示 ${j.points.length}地点`;
+    for (const [id, lat, lon, bearing, err, hasCen, dir] of j.points) {
+      L.marker([lat, lon], {icon: jkIcon(bearing, err, hasCen), zIndexOffset: 400})
+        .bindTooltip(`トラカン JARTIC ${id}${dir ? '（' + dir + '）' : ''}<br>誤差率 ${fmtErr(err)}${hasCen ? '' : '<br>センサス時間交通量なし（チェック対象外）'}`)
+        .on('click', () => tkDlMode ? tkDlToggle(id, 'jartic', lat, lon) : openJartic(id, [lat, lon]))
+        .addTo(jkLayer);
+    }
+  } catch (e) { if (e.name !== 'AbortError') $('jkInfo').textContent = '読込エラー: ' + e.message; }
+}
+async function openJartic(id, latlng) {
+  const p = await api('/api/jartic/point?id=' + encodeURIComponent(id));
+  if (p.error) return;
+  const cen = p.census;
+  const h = `<div class="tk-pop"><h3>トラカン（JARTIC・県警） ${esc(p.name)}</h3>
+    ${tkDlAddBtn(id, 'jartic', p.lat, p.lon)}
+    <div class="meta">
+    地点：情報源 ${id.split('-')[0]} / 計測地点番号 ${id.split('-')[1]}（${esc(p.pref || '')}）${p.rate !== null && p.rate !== undefined ? ` / 当月のデータ取得率 ${(p.rate * 100).toFixed(1)}%` : ''}<br>
+    データ：${p.period[0]}～${p.period[1]} の平日 ${p.weekdays} 日の時間帯別平均（台/時、5分値の合計）<br>
+    ${p.cen ? `センサス区間：${p.cen} ${esc(p.cenName || '')} ${p.dir || ''}（DRMリンクまで ${p.linkDist}m）` : '対応するセンサス区間なし'}<br>
+    ${cen ? `センサス：令和3年度 ${cen.date.slice(0, 4)}/${cen.date.slice(4, 6)}/${cen.date.slice(6)} 観測（${cen.kind}）` : 'センサス時間交通量なし → 妥当性チェック対象外'}</div>
+    <div class="dir">${p.dir || '方向不明'}　誤差率 <span class="err" style="color:${p.err === undefined ? '#6b7280' : Math.abs(p.err) >= 0.2 ? '#b91c1c' : '#15803d'}">${fmtErr(p.err)}</span>
+      <span style="font-weight:normal;color:var(--mut)">${p.err !== undefined ? `（${p.hours}時間で比較：トラカン ${p.sensorSum.toLocaleString()} / センサス ${p.censusSum.toLocaleString()} 台、相関 ${p.r ?? '―'}）` : ''}</span></div>
+    ${tkChart(p.sensor, cen ? cen.values : null)}
+    <div class="src">${esc(p.source)}</div></div>`;
+  L.popup({maxWidth: 420, autoPanPadding: [40, 40]}).setLatLng(latlng).setContent(h).openOn(map);
+}
+async function setJartic(on) {
+  jkOn = on;
+  try { localStorage.setItem(JK_KEY, on ? '1' : ''); } catch (e) {}
+  if (on) { jkLayer.addTo(map); tkLegend.addTo(map); loadJartic(); }
+  else { map.removeLayer(jkLayer); $('jkInfo').textContent = ''; if (!$('tkShow').checked) tkLegend.remove(); }
+}
+$('jkShow').onchange = ev => setJartic(ev.target.checked);
+map.on('moveend', loadJartic);
+
+// ---------- トラカンデータのダウンロード(複数選択・期間指定) ----------
+let tkDlMode = false;
+const tkDlSelected = new Map();  // id -> {source:'mlit'|'jartic', lat, lon}
+const tkDlRingLayer = L.layerGroup();
+
+function tkDlToggle(id, source, lat, lon) {
+  if (tkDlSelected.has(id)) tkDlSelected.delete(id);
+  else tkDlSelected.set(id, {source, lat, lon});
+  tkDlRingLayer.addTo(map);  // ダウンロード画面を開いていなくても選択の目印(リング)は地図に出す
+  renderTkDlRings();
+  updateTkDlCount();
+}
+// グラフのポップアップに出す「ダウンロードに追加」ボタン(妥当性を見ながら追加できるように)
+function tkDlAddBtn(id, source, lat, lon) {
+  const on = tkDlSelected.has(id);
+  return `<button class="small tkdl-popbtn${on ? ' on' : ''}" onclick="tkDlAddFromPopup('${id}','${source}',${lat},${lon},this)">
+    ${on ? '✓ ダウンロード対象（クリックで外す）' : '📥 ダウンロードに追加'}</button>`;
+}
+function tkDlAddFromPopup(id, source, lat, lon, btn) {
+  tkDlToggle(id, source, lat, lon);
+  const on = tkDlSelected.has(id);
+  btn.textContent = on ? '✓ ダウンロード対象（クリックで外す）' : '📥 ダウンロードに追加';
+  btn.classList.toggle('on', on);
+  toast(on ? `ダウンロード対象に追加しました（選択中：国交省 ${[...tkDlSelected.values()].filter(v => v.source === 'mlit').length} 地点／JARTIC ${[...tkDlSelected.values()].filter(v => v.source === 'jartic').length} 地点）`
+           : 'ダウンロード対象から外しました', 3500);
+}
+function renderTkDlRings() {
+  tkDlRingLayer.clearLayers();
+  for (const v of tkDlSelected.values())
+    L.circleMarker([v.lat, v.lon], {renderer:linkRenderer, radius:11, color:'#2563eb', weight:3, fill:false, interactive:false}).addTo(tkDlRingLayer);
+}
+function updateTkDlCount() {
+  let m = 0, j = 0;
+  for (const v of tkDlSelected.values()) { if (v.source === 'mlit') m++; else j++; }
+  $('tkdlMlitCount').textContent = m;
+  $('tkdlJkCount').textContent = j;
+  renderTkDlList();
+  if (tkDlMode) scheduleTkDlAvail();
+}
+
+// 選択中のトラカンの一覧と、各地点のデータがある期間(サーバーに問い合わせて覚えておく)
+const tkDlAvail = new Map();   // id -> {name, from, to, days, months?} / 'loading' / 'error'
+function renderTkDlList() {
+  const from = $('tkdlFrom').value, to = $('tkdlTo').value;
+  $('tkdlList').innerHTML = [...tkDlSelected].map(([id, v]) => {
+    const a = tkDlAvail.get(id);
+    const info = a && typeof a === 'object' ? a : null;
+    let av = a === 'loading' ? 'データの期間を確認中…' : a === 'error' ? '期間を確認できませんでした' : '';
+    let out = false;
+    if (info) {
+      if (!info.from) { av = 'データなし'; out = true; }
+      else {
+        av = `${info.from} ～ ${info.to}（${info.days.toLocaleString()}日分）`;
+        out = !!(from && to && (from < info.from || to > info.to));
+      }
+    }
+    return `<div class="tkdl-item${out ? ' out' : ''}" data-id="${esc(id)}" title="クリックで地図を移動${out ? '\n指定期間の一部にデータがありません' : ''}">
+      <span class="tkdl-src ${v.source}">${v.source === 'mlit' ? '国交省' : 'JARTIC'}</span>
+      <div class="tkdl-main"><div class="tkdl-name">${esc(info?.name || id)}</div><div class="tkdl-av">${esc(av)}</div></div>
+      <button class="tkdl-x" data-x="${esc(id)}" title="選択から外す">×</button></div>`;
+  }).join('');
+  renderTkDlCommon();
+  if (tkCal.field) renderTkCal();   // 期間の確認が終わったらカレンダーの色も更新
+}
+// 選択中の全地点にデータがある期間(各地点の最初の日の最も遅い日 ～ 最後の日の最も早い日)
+function tkDlCommonRange() {
+  let lo = null, hi = null, pending = 0, none = 0;
+  for (const id of tkDlSelected.keys()) {
+    const a = tkDlAvail.get(id);
+    if (!a || a === 'loading') { pending++; continue; }
+    if (a === 'error') continue;
+    if (!a.from) { none++; continue; }
+    if (!lo || a.from > lo) lo = a.from;
+    if (!hi || a.to < hi) hi = a.to;
+  }
+  return {lo, hi, pending, none};
+}
+function renderTkDlCommon() {
+  const el = $('tkdlCommon');
+  if (!tkDlSelected.size) { el.innerHTML = ''; return; }
+  const {lo, hi, pending, none} = tkDlCommonRange();
+  if (pending) { el.innerHTML = `<span style="color:var(--mut)">選択中の全地点にデータがある期間：確認中…（残り ${pending} 地点）</span>`; return; }
+  const note = none ? `<br><span style="color:#c2410c">※データの無い地点 ${none} を除く</span>` : '';
+  if (!lo) { el.innerHTML = '選択中の地点にはデータがありません'; return; }
+  if (lo > hi) { el.innerHTML = `<b style="color:#c2410c">選択中の全地点に共通してデータがある期間はありません</b>${note}`; return; }
+  el.innerHTML = `選択中の全地点にデータがある期間：<b>${lo} ～ ${hi}</b><button class="small" id="tkdlUseCommon">この期間にする</button>${note}`;
+  $('tkdlUseCommon').onclick = () => { $('tkdlFrom').value = lo; $('tkdlTo').value = hi; renderTkDlList(); };
+}
+function scheduleTkDlAvail() {
+  clearTimeout(scheduleTkDlAvail._t);
+  scheduleTkDlAvail._t = setTimeout(fetchTkDlAvail, 500);   // 続けてクリックしたときはまとめて問い合わせる
+}
+async function fetchTkDlAvail() {
+  const todo = {mlit: [], jartic: []};
+  for (const [id, v] of tkDlSelected) if (!tkDlAvail.has(id) || tkDlAvail.get(id) === 'error') todo[v.source].push(id);
+  const jobs = Object.entries(todo).filter(([, ids]) => ids.length).map(async ([src, ids]) => {
+    ids.forEach(id => tkDlAvail.set(id, 'loading'));
+    renderTkDlList();
+    try {
+      const r = await api(src === 'mlit' ? '/api/torakan/avail' : '/api/jartic/avail', {ids});
+      ids.forEach(id => tkDlAvail.set(id, r.items[id] || {from: null, to: null, days: 0}));
+    } catch (e) {
+      ids.forEach(id => tkDlAvail.set(id, 'error'));
+      toast('データの期間を確認できませんでした: ' + e.message, 5000);
+    }
+    renderTkDlList();
+  });
+  await Promise.all(jobs);
+}
+$('tkdlList').onclick = ev => {
+  const x = ev.target.closest('[data-x]');
+  if (x) { const id = x.dataset.x; const v = tkDlSelected.get(id); if (v) tkDlToggle(id, v.source, v.lat, v.lon); return; }
+  const row = ev.target.closest('.tkdl-item');
+  const v = row && tkDlSelected.get(row.dataset.id);
+  if (v) map.setView([v.lat, v.lon], Math.max(map.getZoom(), 15));
+};
+// 期間の選択カレンダー(データのある日だけ選べる。ブラウザ標準の日付欄は日ごとに選べなくできないため自作)
+const tkCal = {field: null, y: 0, m: 0};   // m は 0始まり
+const pad2 = n => String(n).padStart(2, '0');
+function tkDayStatus(iso) {   // 'all'=選択中の全地点にデータあり / 'some'=一部だけ / 'none'=無し(選べない) / 'unknown'=確認中
+  const lo = $('tkdlFrom').min, hi = $('tkdlFrom').max;
+  if ((lo && iso < lo) || (hi && iso > hi)) return 'none';
+  if (!tkDlSelected.size) return 'all';
+  const ym = iso.slice(0, 4) + iso.slice(5, 7), bit = 1 << (Number(iso.slice(8, 10)) - 1);
+  let have = 0, n = 0, pend = false;
+  for (const id of tkDlSelected.keys()) {
+    const a = tkDlAvail.get(id);
+    if (!a || a === 'loading') { pend = true; continue; }
+    if (a === 'error') continue;
+    n++;
+    if (((a.mask && a.mask[ym]) || 0) & bit) have++;
+  }
+  if (pend) return have ? 'some' : 'unknown';
+  if (!n) return 'unknown';
+  return have === n ? 'all' : have ? 'some' : 'none';
+}
+function renderTkCal() {
+  const el = $('tkdlCal');
+  if (!tkCal.field) { el.style.display = 'none'; ['tkdlFrom', 'tkdlTo'].forEach(k => $(k).classList.remove('on')); return; }
+  ['tkdlFrom', 'tkdlTo'].forEach(k => $(k).classList.toggle('on', k === tkCal.field));
+  const {y, m} = tkCal, first = new Date(y, m, 1).getDay(), nd = new Date(y, m + 1, 0).getDate();
+  const from = $('tkdlFrom').value, to = $('tkdlTo').value;
+  const tip = {all: tkDlSelected.size ? '選択中の全地点にデータあり' : 'データあり', some: '一部の地点だけデータあり', none: 'データなし（選べません）', unknown: 'データの有無を確認中'};
+  let h = `<div class="tkcal-head"><button data-nav="-12" title="前の年">«</button><button data-nav="-1" title="前の月">‹</button>
+    <b>${y}年${m + 1}月</b><button data-nav="1" title="次の月">›</button><button data-nav="12" title="次の年">»</button></div>
+    <div class="tkcal-who">${tkCal.field === 'tkdlFrom' ? '開始日' : '終了日'}を選んでください</div><div class="tkcal-grid">`
+    + [...'日月火水木金土'].map((w, i) => `<div class="tkcal-w${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}">${w}</div>`).join('')
+    + '<div></div>'.repeat(first);
+  for (let d = 1; d <= nd; d++) {
+    const iso = `${y}-${pad2(m + 1)}-${pad2(d)}`, st = tkDayStatus(iso);
+    const extra = iso === from || iso === to ? ' sel' : from && to && iso > from && iso < to ? ' inr' : '';
+    h += `<button class="tkcal-d ${st}${extra}" data-d="${iso}"${st === 'none' ? ' disabled' : ''} title="${iso} ${tip[st]}">${d}</button>`;
+  }
+  h += `</div><div class="tkcal-legend"><span><span class="tkcal-d all">1</span>${tkDlSelected.size ? '全地点あり' : 'データあり'}</span>`
+    + (tkDlSelected.size ? '<span><span class="tkcal-d some">1</span>一部の地点のみ</span>' : '')
+    + '<span><span class="tkcal-d none">1</span>データなし（選べない）</span></div>';
+  el.innerHTML = h;
+  el.style.display = '';
+}
+function openTkCal(field) {
+  if (tkCal.field === field) { tkCal.field = null; renderTkCal(); return; }
+  tkCal.field = field;
+  const base = $(field).value || $('tkdlTo').value || $('tkdlFrom').max || new Date().toISOString().slice(0, 10);
+  tkCal.y = Number(base.slice(0, 4)); tkCal.m = Number(base.slice(5, 7)) - 1;
+  renderTkCal();
+}
+['tkdlFrom', 'tkdlTo'].forEach(k => $(k).onclick = () => openTkCal(k));
+$('tkdlCal').onclick = ev => {
+  const nav = ev.target.closest('[data-nav]');
+  if (nav) {
+    const t = tkCal.y * 12 + tkCal.m + Number(nav.dataset.nav);
+    tkCal.y = Math.floor(t / 12); tkCal.m = t % 12;
+    return renderTkCal();
+  }
+  const b = ev.target.closest('[data-d]');
+  if (!b || b.disabled) return;
+  const iso = b.dataset.d;
+  if (tkCal.field === 'tkdlFrom') {
+    $('tkdlFrom').value = iso;
+    if ($('tkdlTo').value && $('tkdlTo').value < iso) $('tkdlTo').value = iso;
+    tkCal.field = 'tkdlTo';   // 続けて終了日を選ぶ
+  } else {
+    $('tkdlTo').value = iso;
+    if ($('tkdlFrom').value && $('tkdlFrom').value > iso) $('tkdlFrom').value = iso;
+    tkCal.field = null;
+  }
+  renderTkDlList();
+  renderTkCal();
+};
+document.addEventListener('mousedown', ev => {
+  if (tkCal.field && !ev.target.closest('#tkdlCal, #tkdlFrom, #tkdlTo')) { tkCal.field = null; renderTkCal(); }
+});
+async function openTkDownload() {
+  tkDlMode = true;
+  $('tkDownloadPanel').style.display = '';
+  tkDlRingLayer.addTo(map);
+  updateTkDlCount();
+  // 選択対象が見えないと選べないため、両方のレイヤを表示しておく
+  if (!$('tkShow').checked) { $('tkShow').checked = true; await setTorakan(true); }
+  if (!$('jkShow').checked) { $('jkShow').checked = true; await setJartic(true); }
+  toast('地図上のトラカンをクリックして選択してください（複数可）');
+  try {
+    const [r1, r2] = await Promise.all([api('/api/torakan/range'), api('/api/jartic/range')]);
+    const mins = [r1.min, r2.min].filter(Boolean).sort(), maxs = [r1.max, r2.max].filter(Boolean).sort();
+    if (mins.length) { $('tkdlFrom').min = mins[0]; $('tkdlFrom').value = $('tkdlFrom').value || maxs[maxs.length - 1]; }
+    if (maxs.length) { $('tkdlFrom').max = maxs[maxs.length - 1]; $('tkdlTo').max = maxs[maxs.length - 1]; $('tkdlTo').value = $('tkdlTo').value || maxs[maxs.length - 1]; }
+    $('tkdlRangeInfo').textContent = `データの範囲　国交省：${r1.min || '―'}～${r1.max || '―'}　JARTIC：${r2.min || '―'}～${r2.max || '―'}`;
+  } catch (e) { $('tkdlRangeInfo').textContent = '期間の取得に失敗しました: ' + e.message; }
+}
+function closeTkDownload() {
+  tkDlMode = false;
+  $('tkDownloadPanel').style.display = 'none';
+  map.removeLayer(tkDlRingLayer);
+}
+$('btnTkDownload').onclick = openTkDownload;
+$('tkdlClose').onclick = closeTkDownload;
+$('tkdlClear').onclick = () => { tkDlSelected.clear(); renderTkDlRings(); updateTkDlCount(); };
+$('tkdlGo').onclick = async () => {
+  const from = $('tkdlFrom').value, to = $('tkdlTo').value;
+  if (!from || !to) { alert('期間を指定してください'); return; }
+  if (from > to) { alert('開始日が終了日より後です'); return; }
+  const mlitIds = [...tkDlSelected].filter(([, v]) => v.source === 'mlit').map(([id]) => id);
+  const jkIds = [...tkDlSelected].filter(([, v]) => v.source === 'jartic').map(([id]) => id);
+  if (!mlitIds.length && !jkIds.length) { alert('トラカンを1つ以上選んでください'); return; }
+  const btn = $('tkdlGo'); btn.disabled = true;
+  toast('データを取得しています…（件数や期間によって数十秒かかることがあります）', 15000);
+  try {
+    const sheets = [];
+    if (mlitIds.length) {
+      const r = await api('/api/torakan/export', {ids: mlitIds, from, to});
+      sheets.push({name:'トラカン(国交省)', header:['ID', '種別', '年月日', '時', '方向', '小型交通量', '大型交通量', '車種判別不能交通量', '合計(台/時)', '備考'],
+        widths:[14, 8, 12, 6, 6, 10, 10, 14, 10, 16], rows:r.rows});
+    }
+    if (jkIds.length) {
+      const r = await api('/api/jartic/export', {ids: jkIds, from, to});
+      sheets.push({name:'トラカン(JARTIC)', header:['ID', '地点名称', '日時', '断面交通量(台/5分)', 'リンク番号'],
+        widths:[14, 24, 18, 18, 10], rows:r.rows});
+    }
+    if (!sheets.some(s => s.rows.length)) { toast('指定した期間・地点のデータがありませんでした', 4000); return; }
+    sheets.push({name:'ダウンロード条件', header:['項目', '内容'], widths:[16, 60], rows:[
+      ['期間', `${from} ～ ${to}`],
+      ['国交省トラカン', mlitIds.join(', ') || '(選択なし)'],
+      ['JARTICトラカン', jkIds.join(', ') || '(選択なし)'],
+      ['国交省データ', '交通量API（国土交通省）機能による交通量(参考値)を加工して作成。1時間値・方向別（上り・下り）。'],
+      ['JARTICデータ', 'JARTIC 断面交通量情報(都道府県警察)・社内SQL Server zaa61055-3 の生データ(5分値)。'],
+    ]});
+    if (await saveXlsx(sheets, `トラカンデータ_${from}_${to}_${stamp()}.xlsx`))
+      logUsage('tk_out', {mlit: mlitIds.length, jartic: jkIds.length, from, to});
+  } catch (e) { alert('ダウンロードに失敗しました: ' + e.message); }
+  finally { btn.disabled = false; }
+};
+
+// ---------- ID検索(検算用) ----------
+// リンクMatchCode(中部方式の並びも可)・ノード番号・センサス区間番号(11桁。10桁はDRMの調査単位)から探して地図に表示する
+const FIND_COLOR = '#db2777';
+const FIND_KIND = {link:'リンク', node:'ノード', census:'センサス区間', unknown:'形式不明'};
+const findLayer = L.layerGroup().addTo(map);
+let findRes = null;
+async function runFind() {
+  const q = $('findQ').value.trim();
+  if (!q) { toast('リンクMatchCode・ノード番号・センサス区間番号を入れてください'); return; }
+  $('btnFind').disabled = true;
+  try {
+    const j = await api(`/api/find?v=${curVer()}&q=${encodeURIComponent(q)}`);
+    j.items.forEach(x => (x.links || []).forEach(l => l.pts = undelta(l.c)));
+    findRes = j; renderFind();
+    const pts = j.items.flatMap(x => (x.links || []).flatMap(l => l.pts).concat(x.node ? [[x.node.lat, x.node.lon]] : []));
+    if (pts.length) map.fitBounds(L.latLngBounds(pts), {maxZoom:17, padding:[60, 60]});
+    else toast(`DRM${j.v} に見つかりませんでした`, 4000);
+  } catch (e) { alert('検索できませんでした: ' + e.message); }
+  finally { $('btnFind').disabled = false; }
+}
+const findLinkInfo = l => `${esc(l.cname)} ${esc(l.rname)}${l.hw ? '（自専道）' : ''} / ${l.len}m${REG[l.reg] ? ' / ' + REG[l.reg] : ''}` +
+  (l.cen ? `<br>センサス ${l.cen} ${esc(l.cenName)}${l.cenDown ? `（下り＝${l.cenDown}方向）` : ''}` : '');
+function renderFind() {
+  const j = findRes;
+  findLayer.clearLayers();
+  if (!j) { $('findPanel').style.display = 'none'; return; }
+  const hit = x => !!((x.links && x.links.length) || x.node);
+  $('findTitle').textContent = `ID検索の結果（${verLabel(j.v)}）：${j.items.filter(hit).length} / ${j.items.length} 件` + (j.truncated ? '（先頭500件まで）' : '');
+  $('findBody').innerHTML = j.items.map((x, i) => {
+    const ls = x.links || [];
+    const km = ls.reduce((s, l) => s + l.len, 0) / 1000;
+    const sub = x.kind === 'census' && ls.length ? `（${ls.length}リンク・${km.toFixed(2)}km）` : x.kind === 'node' && x.node ? `（接続リンク ${ls.length} 本）` : '';
+    return `<div class="fd-item${hit(x) ? '' : ' ng'}"><div class="fd-q" data-i="${i}" title="クリックで地図を移動"><span class="k">${FIND_KIND[x.kind]}</span>${esc(x.q)}${x.cenName ? ' ' + esc(x.cenName) : ''}${sub}</div>
+      ${hit(x) ? (x.msg ? `<div class="fd-msg">${esc(x.msg)}</div>` : '') : `<div class="fd-msg">${esc(x.msg || `DRM${j.v} に見つかりません`)}</div>`}
+      ${ls.map((l, k) => `<div class="fd-link" data-i="${i}" data-k="${k}">${x.kind === 'link' ? '' : l.mc + ' '}<span class="sub">${findLinkInfo(l)}</span></div>`).join('')}</div>`;
+  }).join('');
+  for (const x of j.items) {
+    for (const l of x.links || []) {
+      L.polyline(l.pts, {renderer:routeRenderer, color:'#fff', weight:11, opacity:.9, interactive:false}).addTo(findLayer);
+      L.polyline(l.pts, {renderer:routeRenderer, color:FIND_COLOR, weight:6, opacity:.9, bubblingMouseEvents:false})
+        .bindTooltip(`<b>${l.mc}</b>（検索：${esc(x.q)}）<br>${findLinkInfo(l)}`, {sticky:true}).addTo(findLayer);
+    }
+    if (x.node) L.circleMarker([x.node.lat, x.node.lon], {renderer:routeRenderer, radius:9, color:'#fff', weight:3, fillColor:FIND_COLOR, fillOpacity:1, bubblingMouseEvents:false})
+      .bindTooltip(`<b>ノード ${esc(x.q)}</b><br>接続リンク ${(x.links || []).length} 本`).addTo(findLayer);
+  }
+  $('findPanel').style.display = '';
+}
+function flashFind(pts) {
+  const hl = L.polyline(pts, {renderer:routeRenderer, color:'#ffeb3b', weight:12, opacity:.9, interactive:false}).addTo(map);
+  setTimeout(() => map.removeLayer(hl), 1500);
+}
+$('findBody').onclick = ev => {
+  const el = ev.target.closest('[data-i]');
+  if (!el || !findRes) return;
+  const x = findRes.items[+el.dataset.i];
+  if (el.dataset.k !== undefined) {
+    const l = x.links[+el.dataset.k];
+    map.fitBounds(L.latLngBounds(l.pts), {maxZoom:18, padding:[80, 80]}); flashFind(l.pts); return;
+  }
+  const pts = (x.links || []).flatMap(l => l.pts).concat(x.node ? [[x.node.lat, x.node.lon]] : []);
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), {maxZoom:17, padding:[60, 60]});
+};
+$('btnFind').onclick = runFind;
+$('findQ').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); runFind(); } });
+$('findClose').onclick = () => { findRes = null; renderFind(); };
+
+// ---------- 初回アンケート・利用状況 ----------
+// 支社・役職は最初の起動時に1回だけ聞く(回答はWindowsのログオン名で記録。2回目以降・別のPCでも聞かない)
+async function checkSurvey() {
+  let me = null;
+  for (let k = 0; k < 180 && !me; k++) {   // サーバの起動を待つ
+    try {
+      const r = await fetch('/api/usage/me', {cache:'no-store'});
+      if (r.status === 404) return;   // 古いサーバ
+      me = await r.json();
+    } catch (e) { await new Promise(res => setTimeout(res, 1000)); }
+  }
+  if (!me || !me.enabled) return;
+  if (!me.profile) await askSurvey(me);
+  logUsage('open');
+}
+function askSurvey(me) {
+  return new Promise(resolve => {
+    const chips = (id, name, list) => $(id).innerHTML = list.map(x => `<label><input type="radio" name="${name}" value="${esc(x)}">${esc(x)}</label>`).join('');
+    chips('svBranch', 'svb', me.branches);
+    chips('svRole', 'svr', me.roles);
+    const val = n => (document.querySelector(`#survey input[name=${n}]:checked`) || {}).value;
+    $('survey').onchange = () => $('svOk').disabled = !(val('svb') && val('svr'));
+    $('svOk').onclick = async () => {
+      $('svOk').disabled = true; $('svErr').textContent = '';
+      try {
+        await api('/api/usage/profile', {branch: val('svb'), role: val('svr')});
+        $('survey').style.display = 'none'; toast('ご回答ありがとうございました'); resolve();
+      } catch (e) { $('svErr').textContent = '保存できませんでした: ' + e.message; $('svOk').disabled = false; }
+    };
+    $('survey').style.display = '';
+  });
+}
+const NO_ANSWER = '未回答';
+const USAGE_NOTE = '利用者数＝期間内に1回以上操作した人数 / アクセス＝画面を開いた回数 / リンク拾い 検索＝経路探索の回数（始終点・経由地を変えるたびに1回。逆方向の複製を含む。起動時・設定読込時の自動の引き直しは除く） / ' +
+  'ID検索＝ID検索の実行回数 / リンク拾い 出力＝Excel出力の回数 / トラカン 検索＝地点のグラフを開いた回数 / トラカン 出力＝トラカンデータのダウンロード回数（いずれも保存をキャンセルした場合は数えない）';
+function renderUsage(j) {
+  const M = j.metrics;
+  const tot = cs => ({registered: cs.reduce((s, c) => s + c.registered, 0), users: cs.reduce((s, c) => s + c.users, 0),
+                      n: Object.fromEntries(M.map(([k]) => [k, cs.reduce((s, c) => s + c.n[k], 0)]))});
+  const max = Object.fromEntries(M.map(([k]) => [k, Math.max(1, ...j.cells.map(c => c.n[k]))]));
+  const td = (v, k) => `<td class="${v ? '' : 'z'}">${k && v ? `<span class="bar" style="width:${Math.round(40 * v / max[k])}px"></span>` : ''}${(v || 0).toLocaleString()}</td>`;
+  const row = (cls, a, b, t, bar) => `<tr class="${cls}"><td class="l">${esc(a)}</td>${b === null ? '' : `<td class="l">${esc(b)}</td>`}${td(t.registered)}${td(t.users)}${M.map(([k]) => td(t.n[k], bar && k)).join('')}</tr>`;
+  const head = (cols) => `<tr>${cols.map(c => `<th>${c}</th>`).join('')}<th>回答者数</th><th>利用者数</th>${M.map(m => `<th>${m[1]}</th>`).join('')}</tr>`;
+  let h = `<div class="us-note">記録期間 ${j.first || '―'} ～ ${j.last || '―'} ／ アンケート回答 ${j.registered} 人 ／ ログ ${j.events.toLocaleString()} 件（${(j.bytes / 1e6).toFixed(2)} MB・${j.files} ファイル）<br>${USAGE_NOTE}</div>`;
+  h += '<h3>支社 × 役職</h3><table class="us-tbl">' + head(['支社', '役職']);
+  for (const b of [...j.branches, NO_ANSWER]) {
+    const cs = j.cells.filter(c => c.branch === b);
+    if (!cs.length) continue;
+    h += row('sub', b, '計', tot(cs));
+    cs.forEach(c => h += row('', '', c.role, c, true));
+  }
+  h += row('tot', '合計', '', tot(j.cells)) + '</table>';
+  h += '<h3>役職別</h3><table class="us-tbl">' + head(['役職']);
+  for (const r of [...j.roles, NO_ANSWER]) {
+    const cs = j.cells.filter(c => c.role === r);
+    if (cs.length) h += row('', r, null, tot(cs));
+  }
+  h += row('tot', '合計', null, tot(j.cells)) + '</table>';
+  h += `<h3>月別</h3><table class="us-tbl"><tr><th>月</th><th>利用者数</th>${M.map(m => `<th>${m[1]}</th>`).join('')}</tr>` +
+    j.months.map(m => `<tr><td class="l">${m.month}</td>${td(m.users)}${M.map(([k]) => td(m.n[k])).join('')}</tr>`).join('') + '</table>';
+  $('usBody').innerHTML = h;
+}
+async function loadUsage() {
+  $('usBody').textContent = '集計中…';
+  try { renderUsage(await api(`/api/usage/summary?from=${$('usFrom').value}&to=${$('usTo').value}`)); }
+  catch (e) { $('usBody').textContent = '集計できませんでした: ' + e.message; }
+}
+$('btnUsage').onclick = () => { $('usagePanel').style.display = ''; loadUsage(); };
+$('usClose').onclick = () => $('usagePanel').style.display = 'none';
+$('usGo').onclick = loadUsage;
+$('usAll').onclick = () => { $('usFrom').value = ''; $('usTo').value = ''; loadUsage(); };
+$('usRaw').onclick = async () => {
+  try {
+    const j = await api(`/api/usage/raw?from=${$('usFrom').value}&to=${$('usTo').value}`);
+    if (!j.rows.length) { toast('ログがありません'); return; }
+    await saveXlsx([{name:'利用ログ', header:['日時', '利用者ID', 'PC名', '支社', '役職', '操作', '詳細'],
+                     widths:[20, 16, 18, 10, 18, 22, 90], rows:j.rows}], `DRMリンク拾いツール_利用ログ_${stamp()}.xlsx`);
+  } catch (e) { alert('出力できませんでした: ' + e.message); }
+};
+
+// ---------- 起動 ----------
+// 読込完了まで進捗画面を出して待つ。v 省略時はサーバ起動＋既定の版
+async function waitReady(v, title) {
+  const t0 = Date.now();
+  let fails = 0;
+  $('bootTitle').textContent = title || 'DRMリンク拾いツール 起動中';
+  $('boot').classList.remove('err');
+  $('bootBar').style.width = '0%';
+  $('boot').style.display = '';
+  for (;;) {
+    let st = null;
+    // /api/load: 未読込(メモリから解放済みを含む)なら読込を始め、進捗を返す
+    try { st = await (await fetch('/api/load' + (v ? `?v=${v}` : ''), {cache:'no-store'})).json(); fails = 0; }
+    catch (e) { fails++; }
+    const sec = Math.round((Date.now() - t0) / 1000);
+    if (st) {
+      $('bootBar').style.width = (st.ready ? 100 : st.pct) + '%';
+      $('bootStage').textContent = st.error ? 'エラー: ' + st.error : `DRM${st.v}（${st.label}）: ${st.stage}`;
+      $('bootSub').textContent = `経過 ${sec} 秒` + (st.ready ? '' : '　（黒いウィンドウにも進捗が出ています）');
+      if (st.error) {
+        $('boot').classList.add('err');
+        if (v) { await new Promise(r => setTimeout(r, 2500)); $('boot').style.display = 'none'; alert(`DRM${v} を読み込めませんでした: ${st.error}`); }
+        return false;
+      }
+      if (st.ready) { $('boot').style.display = 'none'; return true; }
+    } else {
+      $('bootStage').textContent = fails > 5 ? 'サーバに接続できません。「起動.bat」から起動してください。' : 'サーバに接続中...';
+      $('bootSub').textContent = `経過 ${sec} 秒`;
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+(async () => {
+  checkSurvey();   // 初回だけ支社・役職を聞く(データの読込を待つ間に回答できるよう先に出す)
+  if (!await waitReady()) return;
+  try {
+    const vj = await api('/api/versions');
+    VERS = vj.versions; DEFAULT_VER = vj.default;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) {}
+    if (saved && saved.length) await restore(saved.map(x => ({name:x.name, color:x.color, types:x.types, rev:x.rev, ver:x.ver, wps:x.wps})), true);
+    else map.setView([35.1709, 136.8815], 15);
+    loadLinks();
+    renderList();
+    try { if (localStorage.getItem(TK_KEY)) { $('tkShow').checked = true; setTorakan(true); } } catch (e) {}
+    try { if (localStorage.getItem(JK_KEY)) { $('jkShow').checked = true; setJartic(true); } } catch (e) {}
+  } catch (e) {
+    $('status').textContent = 'サーバに接続できません。「起動.bat」から起動してください。';
+  }
+})();
+</script>
+</body>
+</html>
