@@ -95,6 +95,12 @@
   .tk-icon { width:16px; height:16px; border:1.5px solid #1f2937; border-radius:2px; box-shadow:0 0 2px rgba(0,0,0,.5); }
   .tk-icon.nocen { border-style:dashed; border-color:#6b7280; }
   .tk-info { color:var(--mut); font-size:11px; }
+  .cen-label { width:0; height:0; }
+  .cen-label span { position:absolute; transform:translate(-50%, -50%); background:rgba(255,255,255,.92); border:1px solid #0f766e; color:#0f766e;
+                    border-radius:3px; padding:0 3px; font:bold 11px/1.4 sans-serif; white-space:nowrap; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.2); }
+  .cen-label span:hover { background:#0f766e; color:#fff; }
+  .cen-pick { margin-top:6px; }
+  .cen-pick button { margin-left:4px; }
   .tk-legend .bar { height:10px; width:180px; background:linear-gradient(90deg, rgb(33,102,172), rgb(247,247,247), rgb(178,24,43)); border:1px solid #999; }
   .tk-legend .ticks { display:flex; justify-content:space-between; width:180px; font-size:10px; }
   .tk-pop h3 { font-size:13px; margin:0 0 4px; }
@@ -241,6 +247,7 @@
           <option value="off">考慮しない</option>
         </select>
       </label>
+      <label class="opt"><input type="checkbox" id="cenShow"> センサス区間番号を表示 <span id="cenInfo" class="tk-info"></span></label>
       <label class="opt"><input type="checkbox" id="tkShow"> トラカン（国交省）を表示 <span id="tkInfo" class="tk-info"></span></label>
       <label class="opt"><input type="checkbox" id="jkShow"> トラカン（JARTIC・県警）を表示 <span id="jkInfo" class="tk-info"></span></label>
       <div class="opt"><button id="btnTkDownload">トラカンデータをダウンロード…</button></div>
@@ -929,6 +936,8 @@ function openInfo(html) {
     e.stopPropagation();
     const b = e.target.closest('[data-copy]');
     if (b) copyText(b.dataset.copy, b.dataset.what);
+    const c = e.target.closest('[data-cen]');
+    if (c) pickCensus(c.dataset.cen, c.dataset.dir);
     if (e.target.closest('[data-a=close]')) closeInfo();
   };
 }
@@ -956,7 +965,8 @@ async function showLinkInfo(lk) {
       infoRow('規制', REG[j.reg] || '双方向') +
       infoRow('リンク長', fmtM(j.len)) +
       (j.cen ? infoRow('センサス', `${j.cen} ${esc(j.cenName)}`, copyBtn(j.cen, 'センサス区間番号')) : '') +
-      `</table><div style="margin-top:4px">${copyBtn([j.mc, j.n1, j.n2].join('\t'), 'リンク・ノード1・ノード2の番号(タブ区切り)').replace('>コピー<', '>リンク・ノード1・ノード2をまとめてコピー<')}</div>`;
+      `</table><div style="margin-top:4px">${copyBtn([j.mc, j.n1, j.n2].join('\t'), 'リンク・ノード1・ノード2の番号(タブ区切り)').replace('>コピー<', '>リンク・ノード1・ノード2をまとめてコピー<')}</div>` +
+      (j.cen ? cenPickHtml(j.cen) : '');
   } catch (e) {
     html = `<table>${head}</table><div style="color:#b91c1c">${esc(e.message)}</div>`;
   }
@@ -1252,7 +1262,7 @@ function setActive(id) {
   const r = active();
   if (r) drawRoute(r);
   renderList();
-  if (prev !== r) loadLinks();
+  if (prev !== r) { loadLinks(); if ((prev && prev.ver) !== (r && r.ver)) loadCensusLabels(); }
 }
 
 // ---------- DRM版の切替・経路の複製 ----------
@@ -1283,7 +1293,7 @@ async function changeVersion(r, v) {
   try {
     const {wps, far} = r.wps.length ? await snapToVersion(r, v) : {wps: [], far: 0};
     r.ver = v; r.wps = wps;
-    if (active() !== r) setActive(r.id); else loadLinks();
+    if (active() !== r) setActive(r.id); else { loadLinks(); loadCensusLabels(); }
     drawRoute(r); save(); compute(r);
     toast(`${verLabel(v)} に切り替えました` + (far ? `（${far} 地点は30m以上離れたノードに付け替え。位置を確認してください）` : ''), far ? 6000 : 3000);
   } catch (e) { r.ver = old; renderList(); alert(e.message); }
@@ -1404,6 +1414,7 @@ function renderDetail() {
       13. <b>番号のコピー</b>：DRMリンクをクリックするとリンク番号（MatchCode）・両端のノード番号・センサス区間番号を、ノード（白丸）をクリックするとノード番号・緯度経度を表示し、それぞれ「コピー」で貼り付けられます（始点・終点を選んでいる最中は、これまでどおり経路の選択）<br>
       14. <b>下絵</b>：地図右上のボタンで 地理院（淡色・標準）／Googleマップ／Google航空写真 を切替（選んだ下絵はこのPCで覚えます）<br>
       15. <b>参照GeoJSON</b>：「＋ GeoJSON追加」で手元のGeoJSON（主要渋滞箇所など）を地図に重ねて表示（このブラウザ内だけで表示し、DRMの経路探索には使いません）。左の「参照GeoJSONレイヤ」で表示・ラベル・形・色・大きさ・線の種類・重なり順を変更、地物をクリックで属性を表示。画面を開き直すと消えます<br>
+      16. <b>センサス区間から拾う</b>：「センサス区間番号を表示」をオンにすると、ズーム13以上で区間番号を地図に表示。番号をクリック（またはリンクの情報・ID検索の結果から）→「下り」「上り」「上下とも」で、その区間を通る経路を新しく追加（下り＝路線の起点→終点。上下線が分かれている所はその向きの車線を通ります）。あとは通常の経路と同じようにExcel出力できます<br>
       ※経路探索はDRMの交通規制種別コードで一方通行の逆走を避けます（上の「一方通行」で切替）。
       ズーム15以上で一方通行リンクに進行方向の矢印（赤：条件無 / 橙：条件付）を表示します。<br>
       ※「トラカン（国交省）を表示」で直轄国道のトラカンを地図に表示。四角の左上=上り・右下=下りを、直近1か月の平日平均とセンサス(R3)時間交通量の誤差率で色分け（青=少ない・赤=多い）。クリックで時間帯別の比較グラフ。<br>
@@ -2008,6 +2019,7 @@ function renderFind() {
     const sub = x.kind === 'census' && ls.length ? `（${ls.length}リンク・${km.toFixed(2)}km）` : x.kind === 'node' && x.node ? `（接続リンク ${ls.length} 本）` : '';
     return `<div class="fd-item${hit(x) ? '' : ' ng'}"><div class="fd-q" data-i="${i}" title="クリックで地図を移動"><span class="k">${FIND_KIND[x.kind]}</span>${esc(x.q)}${x.cenName ? ' ' + esc(x.cenName) : ''}${sub}</div>
       ${hit(x) ? (x.msg ? `<div class="fd-msg">${esc(x.msg)}</div>` : '') : `<div class="fd-msg">${esc(x.msg || `DRM${j.v} に見つかりません`)}</div>`}
+      ${x.kind === 'census' && ls.length && /^\d{11}$/.test(x.q) ? cenPickHtml(x.q) : ''}
       ${ls.map((l, k) => `<div class="fd-link" data-i="${i}" data-k="${k}">${x.kind === 'link' ? '' : l.mc + ' '}<span class="sub">${findLinkInfo(l)}</span></div>`).join('')}</div>`;
   }).join('');
   for (const x of j.items) {
@@ -2026,6 +2038,8 @@ function flashFind(pts) {
   setTimeout(() => map.removeLayer(hl), 1500);
 }
 $('findBody').onclick = ev => {
+  const c = ev.target.closest('[data-cen]');
+  if (c) { pickCensus(c.dataset.cen, c.dataset.dir); return; }
   const el = ev.target.closest('[data-i]');
   if (!el || !findRes) return;
   const x = findRes.items[+el.dataset.i];
@@ -2039,6 +2053,95 @@ $('findBody').onclick = ev => {
 $('btnFind').onclick = runFind;
 $('findQ').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); runFind(); } });
 $('findClose').onclick = () => { findRes = null; renderFind(); };
+
+// ---------- センサス区間番号の表示・区間のリンクをそのまま拾う ----------
+// ズーム13以上で、表示範囲のセンサス区間に番号ラベルを出す。ラベルをクリック → 区間を強調し、上り/下りを選んで新しい経路として追加。
+// 経路はサーバが区間のリンクをその向きに並べて始終点(と必要な経由リンク)を決め、あとは通常の経路と同じ(版・道路種別・延長などもそのまま)
+const CEN_KEY = 'drm_link_picker_census';
+const CEN_ZOOM = 13;
+map.createPane('cenPane').style.zIndex = 620;   // 経路の始終点マーカーより上(ラベルをクリックできるように)
+const cenLayer = L.layerGroup();
+var cenOn = false, cenAbort = null;   // var: loadLinks から先に呼ばれても良いように
+function cenPickHtml(code) {
+  return `<div class="cen-pick">センサス区間 ${esc(code)} のリンクを拾う：` +
+    `<button class="small" data-cen="${esc(code)}" data-dir="下り" title="路線の起点→終点の向き">下り</button>` +
+    `<button class="small" data-cen="${esc(code)}" data-dir="上り" title="路線の終点→起点の向き">上り</button>` +
+    `<button class="small" data-cen="${esc(code)}" data-dir="両方">上下とも</button></div>`;
+}
+async function loadCensusLabels() {
+  if (!cenOn) return;
+  if (cenAbort) cenAbort.abort();
+  if (map.getZoom() < CEN_ZOOM) { cenLayer.clearLayers(); $('cenInfo').textContent = `（ズーム${CEN_ZOOM}以上で表示）`; return; }
+  cenAbort = new AbortController();
+  const b = map.getBounds();
+  try {
+    const res = await fetch(`/api/census?v=${curVer()}&w=${b.getWest()}&s=${b.getSouth()}&e=${b.getEast()}&n=${b.getNorth()}`, {signal: cenAbort.signal});
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || res.statusText);
+    cenLayer.clearLayers();
+    // 重なるラベルは出さない(押し間違い防止)。道路種別(区間番号の3桁目)が上位のもの(高速→国道→…)を優先
+    const placed = [];
+    let hidden = 0;
+    const items = j.labels.slice().sort((a, b) => a[0][2] - b[0][2] || (a[0] < b[0] ? -1 : 1));
+    for (const [code, name, lat, lon] of items) {
+      const p = map.latLngToContainerPoint([lat, lon]), w = code.length * 7 + 10;
+      if (placed.some(q => Math.abs(q.x - p.x) < w && Math.abs(q.y - p.y) < 18)) { hidden++; continue; }
+      placed.push(p);
+      L.marker([lat, lon], {pane:'cenPane', icon: L.divIcon({className:'cen-label', html:`<span>${code}</span>`, iconSize:[0, 0]}), bubblingMouseEvents:false})
+        .bindTooltip(`<b>センサス ${code}</b> ${esc(name)}<br>クリックでこの区間のリンクを拾う`, {direction:'top', offset:[0, -8]})
+        .on('click', e => { L.DomEvent.stop(e); noClick(); openCensus(code, name); })
+        .addTo(cenLayer);
+    }
+    $('cenInfo').textContent = j.truncated ? '（区間が多いため、もう少し拡大してください）' :
+      `（${j.labels.length - hidden}区間${hidden ? `・重なる${hidden}区間は拡大すると表示` : ''}）`;
+  } catch (e) { if (e.name !== 'AbortError') $('cenInfo').textContent = '読込エラー: ' + e.message; }
+}
+async function openCensus(code, name) {
+  const my = ++infoSeq;
+  infoHi.clearLayers();
+  openInfo(`<table>${infoRow('センサス', `${code} ${esc(name)}`, copyBtn(code, 'センサス区間番号'))}</table>${cenPickHtml(code)}` +
+    `<small style="color:#666">新しい経路として追加します（下り＝路線の起点→終点）</small>`);
+  try {   // 区間のリンクを強調(ID検索と同じ検索。利用ログには数えない)
+    const j = await api(`/api/find?v=${curVer()}&q=${code}&nolog=1`);
+    if (my !== infoSeq) return;
+    for (const l of (j.items[0] || {}).links || []) {
+      const pts = undelta(l.c);
+      L.polyline(pts, {pane:'candPane', interactive:false, color:'#fff', weight:12, opacity:.9}).addTo(infoHi);
+      L.polyline(pts, {pane:'candPane', interactive:false, color:HI_COLOR, weight:6, opacity:1}).addTo(infoHi);
+    }
+  } catch (e) {}
+}
+// soft: 「上下とも」のとき。片方向だけの区間(ランプ・一方通行)は、通れない向きをエラーにせず知らせるだけ
+async function pickCensus(code, dir, soft = false) {
+  if (dir === '両方') {
+    const a = await pickCensus(code, '下り', true), b = await pickCensus(code, '上り', true);
+    if (!a && !b) alert(`センサス区間 ${code} の経路を作れませんでした`);
+    else if (!a || !b) toast(`この区間は${a ? '下り' : '上り'}だけ通れるため、${a ? '下り' : '上り'}の経路だけ追加しました`, 6000);
+    return;
+  }
+  toast(`センサス区間 ${code}（${dir}）のリンクを探しています...`);
+  try {
+    const j = await api('/api/census/route', {code, dir, v: curVer(), mode: $('mode').value, oneway: $('oneway').value});
+    const r = newRoute({name: `${j.name || 'センサス'} ${code} ${dir}`, wps: j.waypoints, ver: j.v});
+    setActive(r.id); save();
+    await compute(r);
+    if (r.err) throw new Error(r.err);
+    const pts = allLinks(r).flatMap(l => l.pts);
+    if (pts.length) map.fitBounds(L.latLngBounds(pts), {maxZoom:16, padding:[60, 60]});
+    toast(`経路「${r.name}」を追加しました（区間 ${j.links} リンク・${(j.len / 1000).toFixed(2)}km）` +
+      (j.missing ? `。区間内の ${j.missing} リンクは通れませんでした` : '') +
+      (j.partial ? '。区間がつながっていない部分があるため、最も長くつながる部分を拾いました' : ''), 6000);
+    return true;
+  } catch (e) { if (!soft) alert(`センサス区間 ${code}（${dir}）の経路を作れませんでした：${e.message}`); return false; }
+}
+function setCensus(on) {
+  cenOn = on;
+  try { localStorage.setItem(CEN_KEY, on ? '1' : ''); } catch (e) {}
+  if (on) { cenLayer.addTo(map); loadCensusLabels(); }
+  else { if (cenAbort) cenAbort.abort(); cenLayer.clearLayers(); map.removeLayer(cenLayer); $('cenInfo').textContent = ''; }
+}
+$('cenShow').onchange = ev => setCensus(ev.target.checked);
+map.on('moveend', loadCensusLabels);
 
 // ---------- 初回アンケート・利用状況 ----------
 // 支社・役職は最初の起動時に1回だけ聞く(回答はWindowsのログオン名で記録。2回目以降・別のPCでも聞かない)
@@ -2166,6 +2269,7 @@ async function waitReady(v, title) {
     renderList();
     try { if (localStorage.getItem(TK_KEY)) { $('tkShow').checked = true; setTorakan(true); } } catch (e) {}
     try { if (localStorage.getItem(JK_KEY)) { $('jkShow').checked = true; setJartic(true); } } catch (e) {}
+    try { if (localStorage.getItem(CEN_KEY)) { $('cenShow').checked = true; setCensus(true); } } catch (e) {}
   } catch (e) {
     $('status').textContent = 'サーバに接続できません。「起動.bat」から起動してください。';
   }
