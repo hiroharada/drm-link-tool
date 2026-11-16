@@ -20,12 +20,14 @@
 4. 不具合が出たら、GitHub 上で原因のコミットを Revert（取り消し）すれば、同様に自動で元に戻る
 
 ## 改修のしかた
-**参加するには**：オーナーに GitHub アカウント名を伝え、Collaborator に招待してもらう。
+**必要なもの**：GitHub アカウント（無料）だけ。招待は不要です。
 
 **かんたんな方法（ブラウザだけ）**
-1. 直したいファイルを開いて鉛筆アイコン（Edit）を押す
-2. 修正して「Commit changes」→ そのまま main に commit すると全国に反映される
-   （自信がないときは「Create a new branch … and start a pull request」を選び、他の人に見てもらう）
+1. 直したいファイルを開いて鉛筆アイコン（Edit）を押す（初回は自分用のコピー＝Fork が自動で作られる）
+2. 修正して「Commit changes」→「Propose changes」→「Create pull request」
+3. 何を・なぜ直したかを書いて送る。オーナーが確認して Merge すると、15 分以内に全国へ反映される
+
+よく改修する人は、オーナーに GitHub アカウント名を伝えて Collaborator に招待してもらうと、確認なしで main を直接更新できます（その場合は上の 3 で直接 main に commit）。
 
 **本格的に直す方法**
 1. 自分の PC に clone し、ブランチを切って修正する（共有フォルダ上で直接作業しない）
