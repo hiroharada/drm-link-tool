@@ -1107,6 +1107,116 @@ def find_ids(d, q):
     return out, len(toks) > FIND_MAX_TOKENS
 
 
+# ---------------------------------------------------------------------------
+#  センサス区間の番号表示・区間から経路を作る
+# ---------------------------------------------------------------------------
+CEN_LABEL_MAX = 2000
+
+
+def census_labels(d, w, s, e, n):
+    """表示範囲にあるセンサス区間の番号ラベル [区間番号, 路線名, 緯度, 経度]。
+    区間ごとに、範囲内にあるリンクのうち中央に最も近いリンクの中点に置く"""
+    W, S, E, N = (round(v * SCALE) for v in (w, s, e, n))
+    ids, _ = d.links_in(w, s, e, n, 9, 10 ** 7)
+    memo, groups = {}, collections.defaultdict(list)
+    for lid in ids:
+        u = d.l_cen[lid]
+        if not u:
+            continue
+        mk = (u, d.l_gyo[lid] // 1000, d.l_cyr[lid])
+        if mk not in memo:
+            memo[mk] = census_info(d, lid, True)['cen']
+        code = memo[mk]
+        if not code:
+            continue
+        pts = d.link_coords(lid)
+        x, y = pts[len(pts) // 2] if len(pts) > 2 else ((pts[0][0] + pts[-1][0]) // 2, (pts[0][1] + pts[-1][1]) // 2)
+        if W <= x <= E and S <= y <= N:
+            groups[code].append((x, y))
+    if len(groups) > CEN_LABEL_MAX:
+        return [], True
+    out = []
+    for code, ps in groups.items():
+        cx = sum(p[0] for p in ps) / len(ps)
+        cy = sum(p[1] for p in ps) / len(ps)
+        x, y = min(ps, key=lambda p: (p[0] - cx) ** 2 + (p[1] - cy) ** 2)
+        out.append([code, CENSUS['r3'].get(code, ''), y / SCALE, x / SCALE])
+    return out, False
+
+
+def census_section_links(d, code):
+    idx = _cen_index(d)
+    cand = set(idx.get(int(code[1:]), ()))
+    for h in CENSUS.get('h27_rev', {}).get(code, ()):   # 平成27年度の番号を持つ版
+        cand.update(idx.get(int(h[1:]), ()))
+    return [l for l in cand if census_info(d, l, True)['cen'] == code]
+
+
+def census_section_route(d, code, cdir, oneway, types, mode):
+    """センサス区間を cdir(上り/下り)に通る経路の経由地。
+    区間のリンクをその向きに並べて最も長くつながる列を作り、始終点(ノード)で経路を引く。
+    区間のリンクを通らない所があれば、そのリンクを経由地に足して引き直す。"""
+    if not re.fullmatch(r'\d{11}', code or '') or cdir not in ('上り', '下り'):
+        raise RouteError('センサス区間番号(11桁)と方向(上り/下り)を指定してください')
+    lids = census_section_links(d, code)
+    if not lids:
+        raise RouteError('DRM%s にセンサス区間 %s のリンクがありません' % (d.ver, code))
+    blk_fwd, blk_rev = ONEWAY_BLOCK.get(oneway, ONEWAY_BLOCK['all'])
+    want = 1 if cdir == '下り' else 2           # 管起点Nから入る向き = 下り
+    out, indeg = collections.defaultdict(list), collections.Counter()
+    for l in lids:
+        kki = d.l_kki[l]
+        for fwd in (True, False):
+            if kki and kki != (want if fwd else 3 - want):
+                continue
+            if d.l_reg[l] in (blk_fwd if fwd else blk_rev):
+                continue                          # 反対車線(一方通行の逆向き)
+            a, b = (d.l_n1[l], d.l_n2[l]) if fwd else (d.l_n2[l], d.l_n1[l])
+            out[a].append((b, l))
+            indeg[b] += 1
+    if not out:
+        raise RouteError('センサス区間 %s を%s方向に通れるリンクがありません' % (code, cdir))
+    # 最も長くつながるリンク列(閉路は除いて、トポロジカル順に最長路)
+    nodes = set(out) | set(indeg)
+    deg = {v: indeg[v] for v in nodes}
+    order = [v for v in nodes if not deg[v]]
+    for v in order:
+        for b, _ in out.get(v, ()):
+            deg[b] -= 1
+            if not deg[b]:
+                order.append(b)
+    if not order:
+        raise RouteError('センサス区間 %s のリンクが環状のため、始終点を決められません' % code)
+    dist, prev = {v: 0.0 for v in order}, {}
+    for v in order:
+        for b, l in out.get(v, ()):
+            if b in dist and dist[v] + d.l_len[l] > dist[b]:
+                dist[b], prev[b] = dist[v] + d.l_len[l], (v, l)
+    end = max(order, key=lambda v: dist[v])
+    chain, v = [], end
+    while v in prev:
+        v, l = prev[v]
+        chain.append(l)
+    chain.reverse()
+    start = v
+    keys = [d.node_key[start], d.node_key[end]]
+    for _ in range(30):
+        legs, wp_json = plan_route(d, keys, oneway, types, mode)
+        got = {l for leg in legs for l, _ in leg}
+        miss = [l for l in chain if l not in got]
+        if not miss:
+            break
+        lk = 'L:%d:%s' % (miss[0], d.mc[miss[0]])
+        pos = chain.index(miss[0])
+        # 経由リンクは区間内の並び順の位置に入れる
+        at = 1 + sum(1 for k in keys[1:-1] if chain.index(d.link_of(k)) < pos)
+        keys.insert(at, lk)
+    sec_len = sum(d.l_len[l] for l in chain)
+    return {'v': d.ver, 'code': code, 'name': CENSUS['r3'].get(code, ''), 'dir': cdir, 'waypoints': wp_json,
+            'links': len(chain), 'len': round(sec_len), 'missing': len(miss),
+            'partial': len(chain) < len({l for _, ls in out.items() for _, l in ls})}
+
+
 STORE = None
 USAGE = None   # 利用状況の記録(usage.Usage)。起動時に作る
 
@@ -1672,9 +1782,15 @@ class Handler(SimpleHTTPRequestHandler):
                                        'rname': d.route_name(lid), 'reg': d.l_reg[lid], 'cen': c['cen'], 'cenName': c['cenName']})
             if u.path == '/api/find':
                 items, trunc = find_ids(d, q.get('q', ''))
-                usage('find', v=d.ver, n=len(items), hit=sum(1 for r in items if r.get('links') or r.get('node')),
-                      kinds=','.join(sorted({r['kind'] for r in items})), q=q.get('q', '')[:200])
+                if not q.get('nolog'):   # 画面側の補助的な検索(センサス区間の強調など)は数えない
+                    usage('find', v=d.ver, n=len(items), hit=sum(1 for r in items if r.get('links') or r.get('node')),
+                          kinds=','.join(sorted({r['kind'] for r in items})), q=q.get('q', '')[:200])
                 return self.send_json({'v': d.ver, 'items': items, 'truncated': trunc})
+            if u.path == '/api/census':
+                # 地図に出すセンサス区間番号のラベル
+                w, s, e, n = (float(q[k]) for k in ('w', 's', 'e', 'n'))
+                labels, trunc = census_labels(d, w, s, e, n)
+                return self.send_json({'v': d.ver, 'labels': labels, 'truncated': trunc})
         except Exception as ex:
             return self.send_json({'error': str(ex)}, 400)
         self.send_error(404)
@@ -1784,6 +1900,21 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({'error': str(ex)}, 400)
             usage(ename, ok=1, links=sum(len(l) for l in legs), **ev)
             return self.send_json({'v': d.ver, 'legs': legs_json(d, legs), 'nodes': wp_json})
+        if u.path == '/api/census/route':
+            # センサス区間を上り/下りに通る経路の経由地(画面側はこれで経路を作って通常どおり引く)
+            req = json.loads(body or b'{}')
+            d = self.drm(req.get('v') or STORE.default)
+            if d is None:
+                return
+            mode = 'dist' if req.get('mode') == 'dist' else 'time'
+            try:
+                r = census_section_route(d, str(req.get('code', '')), req.get('dir'), req.get('oneway', 'all'),
+                                         parse_types(req.get('types')), mode)
+            except RouteError as ex:
+                usage('census_route', v=d.ver, ok=0, code=str(req.get('code', ''))[:11])
+                return self.send_json({'error': str(ex)}, 400)
+            usage('census_route', v=d.ver, ok=1, code=r['code'], dir=r['dir'], links=r['links'])
+            return self.send_json(r)
         if u.path == '/api/reverse':
             # 経路の逆方向(上下線分離区間は反対車線)を作る
             req = json.loads(body or b'{}')

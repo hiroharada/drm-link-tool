@@ -27,6 +27,7 @@ EVENTS = {
     'route': '経路探索',
     'reverse': '逆方向を複製',
     'find': 'ID検索',
+    'census_route': 'センサス区間から経路を作成',   # 続けて経路探索(route)も記録されるので集計表には足さない
     'link_out': 'リンクExcel出力',
     'tk_view': 'トラカン グラフ表示',
     'tk_out': 'トラカン ダウンロード',
