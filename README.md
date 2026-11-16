@@ -22,7 +22,7 @@
 2. ブランチを切って修正する
 3. 動作確認：DRM データと変換済みキャッシュは共有フォルダのものを参照して起動
    ```
-   python -X utf8 "30_ツール本体（触らない）\server.py" "\zlcb005\...\20_DRM拾いツール\DRMコピー_同じもの使う" --shared-cache="\zlcb005\...\10_リンク拾いツール\30_ツール本体（触らない）\_cache" --port=8766 --no-usage
+   python -X utf8 "30_ツール本体（触らない）\server.py" "\zlcb005\...\20_DRM拾いツール\DRMコピー_こっちを使う" --shared-cache="\zlcb005\...\10_リンク拾いツール\30_ツール本体（触らない）\_cache" --port=8766 --no-usage
    ```
    （`--port` は利用者の 8765 と被らない番号に。`--no-usage` で利用ログに記録しない）
 4. GitHub に push して Pull Request を作り、もう一人が確認してから `main` に取り込む
